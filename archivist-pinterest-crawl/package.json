@@ -1,0 +1,17 @@
+{
+  "name": "archivist-pinterest-crawl",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
+  "license": "MIT",
+  "dependencies": {
+    "async": "^3.1.0",
+    "cheerio": "^1.0.0-rc.3",
+    "puppeteer": "^2.0.0"
+  }
+}

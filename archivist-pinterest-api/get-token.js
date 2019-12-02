@@ -16,9 +16,9 @@ const CONFIG_PATH = envPaths("archivist-pinterest").config;
 const TOKEN_PATH = path.join(CONFIG_PATH, "token.json");
 
 module.exports = callback => {
-  // if (fs.existsSync(TOKEN_PATH)) {
-  //   return callback(null, require(TOKEN_PATH).token);
-  // }
+  if (fs.existsSync(TOKEN_PATH)) {
+    return callback(null, require(TOKEN_PATH).token);
+  }
 
   const storeToken = token => {
     fs.writeFileSync(TOKEN_PATH, JSON.stringify({ token }));
