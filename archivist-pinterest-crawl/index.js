@@ -1,13 +1,32 @@
-const puppeteer = require("puppeteer");
-const cheerio = require("cheerio");
 const async = require("async");
+const cheerio = require("cheerio");
+const chrome = require("chrome-cookies-secure");
+const puppeteer = require("puppeteer");
 
 const ROOT = "https://pinterest.com";
+const CREDS = require("./.creds.json");
 
-const crawlBoard = async (browser, boardUrl) => {
-  console.log(boardUrl);
+const sleep = time =>
+  new Promise(resolve => {
+    setTimeout(resolve, time);
+  });
 
-  const page = await browser.newPage();
+const crawlPin = async (page, pinUrl) => {
+  await page.goto(pinUrl, { waitUntil: "networkidle0" });
+
+  const content = await page.content();
+  const $ = cheerio.load(content);
+
+  const img = $("[data-test-id=closeup-image] > div > img");
+  const imgSrc = img.attr("src");
+  const imgAlt = img.attr("alt");
+
+  const linkHref = $(".linkModuleActionButton").attr("href");
+
+  return [page, { pinUrl, imgSrc, imgAlt, linkHref }];
+};
+
+const crawlBoard = async (page, boardUrl) => {
   await page.goto(boardUrl, { waitUntil: "networkidle0" });
 
   // scroll down to bottom (hopefully)
@@ -20,9 +39,9 @@ const crawlBoard = async (browser, boardUrl) => {
           window.scrollTo(0, 9999999);
 
           setTimeout(() => {
-            console.log("here", window.scrollY);
-
-            const hasSecondaryBoard = document.querySelector("[data-test-id=secondaryBoardGrid]");
+            const hasSecondaryBoard = document.querySelector(
+              "[data-test-id=secondaryBoardGrid]"
+            );
 
             if (hasSecondaryBoard || window.scrollY === lastScrollPosition) {
               resolve(lastScrollPosition);
@@ -36,8 +55,6 @@ const crawlBoard = async (browser, boardUrl) => {
         scrollDown();
       })
   );
-
-  console.log({ scrollResult });
 
   const content = await page.content();
   const $ = cheerio.load(content);
@@ -57,15 +74,11 @@ const crawlBoard = async (browser, boardUrl) => {
     })
     .get();
 
-  console.log(gridItems);
+  return [page, gridItems];
 };
 
-const run = async () => {
-  const headless = false;
-  const browser = await puppeteer.launch({ headless });
-  const page = await browser.newPage();
-
-  await page.goto(ROOT + "/szymon_k/");
+const crawlProfile = async (page, profileUrl) => {
+  await page.goto(profileUrl);
 
   const content = await page.content();
   const $ = cheerio.load(content);
@@ -79,10 +92,59 @@ const run = async () => {
     })
     .get();
 
-  // TODO: async.mapLimit(board)
-  await crawlBoard(browser, ROOT + boards[0]);
+  return [page, boards];
+};
 
-  // await browser.close();
+const loginWithCreds = async page => {
+  await page.goto(ROOT, { waitUntil: "networkidle0" });
+  await page.click("[data-test-id=login-button] > button");
+
+  await page.type("#email", CREDS.email);
+  await sleep(2000);
+  await page.type("#password", CREDS.password);
+  await sleep(2000);
+
+  await page.click(".SignupButton");
+  await page.waitForNavigation();
+
+  return page;
+};
+
+const loginWithCookiesFromChrome = async page =>
+  new Promise(resolve => {
+    chrome.getCookies(ROOT, "puppeteer", (err, cookies) => {
+      page.setCookie(...cookies).then(() => {
+        page.goto(ROOT, { waitUntil: "networkidle0" }).then(() => {
+          resolve(page);
+        });
+      });
+    });
+  });
+
+const run = async () => {
+  let boards, pins, page;
+
+  const headless = false;
+  const browser = await puppeteer.launch({ headless });
+
+  page = await browser.newPage();
+  await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
+
+  page = await loginWithCookiesFromChrome(page);
+  // page = await loginWithCreds(page); // breaks when logging in too much(?)
+
+  // [page, boards] = await crawlProfile(page, ROOT + "/szymon_k/");
+
+  // let [page, pins] = await crawlBoard(page, ROOT + boards[0]); // TODO: async.mapLimit(board)
+
+  [page, pin] = await crawlPin(
+    page,
+    "https://www.pinterest.com/pin/658299670515511626/"
+  );
+
+  console.log({ pin });
+
+  await browser.close();
 };
 
 run();
