@@ -2,7 +2,7 @@ const async = require("async");
 const cheerio = require("cheerio");
 const chrome = require("chrome-cookies-secure");
 const puppeteer = require("puppeteer");
-const { chain } = require("lodash");
+const { chain, flatten, uniqBy } = require("lodash");
 
 const ROOT = "https://pinterest.com";
 const CREDS = require("./.creds.json");
@@ -12,7 +12,12 @@ const sleep = time =>
     setTimeout(resolve, time);
   });
 
-const crawlPin = async (page, pinUrl) => {
+const crawlPin = async (browser, pinUrl) => {
+  console.log("crawling pin", pinUrl);
+
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
+
   await page.goto(pinUrl, { waitUntil: "networkidle0" });
 
   const content = await page.content();
@@ -24,72 +29,61 @@ const crawlPin = async (page, pinUrl) => {
 
   const linkHref = $(".linkModuleActionButton").attr("href");
 
+  await page.close();
+
   return { pinUrl, imgSrc, imgAlt, linkHref };
 };
 
 const crawlBoard = async (page, boardUrl) => {
-  await page.goto(boardUrl);
+  console.log("crawling board", boardUrl);
+
+  await page.goto(boardUrl, { waitUntil: "networkidle0" });
 
   // scroll down to bottom (hopefully)
   const scrollResult = await page.evaluate(
     () =>
       new Promise(resolve => {
         let lastScrollPosition = 0;
+        const allPins = {};
 
         const scrollDown = () => {
-          window.scrollTo(0, 9999999);
+          window.scrollTo(0, window.scrollY + 100);
 
           setTimeout(() => {
-            const hasSecondaryBoard = document.querySelector(
-              "[data-test-id=secondaryBoardGrid]"
-            );
+            const pins = document.querySelectorAll("[data-test-id=pin]");
 
-            const hasMoreIdeasOnBoard = document.querySelector(
-              ".moreIdeasOnBoard"
-            );
+            const pinsProcessed = Array.from(pins).map(pin => {
+              const url = pin.querySelector("a").href;
+              const src = pin.querySelector("img").src;
+              const alt = pin.querySelector("img").alt;
 
-            if (
-              hasSecondaryBoard ||
-              hasMoreIdeasOnBoard ||
-              window.scrollY === lastScrollPosition
-            ) {
-              resolve(lastScrollPosition);
+              return { url, src, alt };
+            });
+
+            pinsProcessed.forEach(pin => {
+              allPins[pin.url] = pin;
+            });
+
+            if (window.scrollY === lastScrollPosition) {
+              resolve(Object.values(allPins));
             } else {
               lastScrollPosition = window.scrollY;
               scrollDown();
             }
-          }, 1000);
+          }, 10);
         };
 
         scrollDown();
       })
   );
 
-  console.log({ scrollResult });
-
-  const content = await page.content();
-  const $ = cheerio.load(content);
-
-  const pinsEls = $("[data-test-id=pinWrapper]");
-
-  const pins = pinsEls
-    .map((_, el) => {
-      const link = $(el).find("a");
-      const img = link.find("img");
-
-      return {
-        src: img.attr("src"),
-        alt: img.attr("alt"),
-        url: link.attr("href")
-      };
-    })
-    .get();
-
-  return pins;
+  return scrollResult;
 };
 
 const crawlProfile = async (page, profileUrl) => {
-  await page.goto(profileUrl);
+  console.log("crawling profile", profileUrl);
+
+  await page.goto(profileUrl, { waitUntil: "networkidle0" });
 
   const boards = await page.evaluate(() => {
     return Array.from(document.querySelectorAll("[draggable=true]")).map(el => {
@@ -117,7 +111,7 @@ const loginWithCookiesFromChrome = async page =>
   new Promise(resolve => {
     chrome.getCookies(ROOT, "puppeteer", (err, cookies) => {
       page.setCookie(...cookies).then(() => {
-        page.goto(ROOT).then(() => {
+        page.goto(ROOT, { waitUntil: "networkidle0" }).then(() => {
           resolve();
         });
       });
@@ -125,40 +119,46 @@ const loginWithCookiesFromChrome = async page =>
   });
 
 const run = async () => {
-  // const headless = true;
-  // const browser = await puppeteer.launch({ headless });
+  const headless = false;
+  const browser = await puppeteer.launch({ headless });
 
-  // const page = await browser.newPage();
-  // await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
 
-  // await loginWithCookiesFromChrome(page);
+  await loginWithCookiesFromChrome(page);
   // await loginWithCreds(page); // breaks when logging in too much(?)
 
-  // const boards = await crawlProfile(page, ROOT + "/szymon_k/");
-  // const pins = await crawlBoard(page, boards[0]); // TODO: async.mapLimit(board)
-  // const pin = await crawlPin(page, pins[0]);
+  const boards = await crawlProfile(page, ROOT + "/szymon_k/");
 
-  const pin = {
-    pinUrl: "https://www.pinterest.com/pin/393994667385066863/",
-    imgSrc:
-      "https://i.pinimg.com/236x/52/aa/ae/52aaaeaf341127c2be07dbc9984fbc57.jpg",
-    imgAlt: "minimal tatt by Axel Ejsmont, Berlin",
-    linkHref:
-      "http://axelejsmont.tumblr.com/post/131815025507/axelejsmont-tattoo-geometry-berlin"
-  };
+  const allPins = await Promise.all(
+    boards.map(async board => {
+      const pins = await crawlBoard(page, board);
 
-  const pinExtended = {
-    ...pin,
-    board: chain("https://pl.pinterest.com/szymon_k/ink/")
-      .split("/")
-      .takeRight(2)
-      .first()
-      .value()
-  };
+      return pins.map(pin => ({
+        ...pin,
+        board: chain(board)
+          .split("/")
+          .takeRight(2)
+          .first()
+          .value()
+      }));
+    })
+  );
 
-  // await browser.close();
-
-  return [pinExtended];
+  return new Promise(resolve => {
+    async.mapLimit(
+      flatten(allPins),
+      4,
+      async pinData => {
+        const pinDetail = await crawlPin(browser, pinData.url);
+        return { ...pinData, detail: pinDetail };
+      },
+      async (err, res) => {
+        await browser.close();
+        resolve(res);
+      }
+    );
+  });
 };
 
 module.exports = run;
