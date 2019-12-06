@@ -2,7 +2,7 @@ const async = require("async");
 const cheerio = require("cheerio");
 const chrome = require("chrome-cookies-secure");
 const puppeteer = require("puppeteer");
-const { chain, flatten, uniqBy } = require("lodash");
+const { chain, flatten } = require("lodash");
 
 const ROOT = "https://pinterest.com";
 const CREDS = require("./.creds.json");
@@ -27,11 +27,11 @@ const crawlPin = async (browser, pinUrl) => {
   const imgSrc = img.attr("src");
   const imgAlt = img.attr("alt");
 
-  const linkHref = $(".linkModuleActionButton").attr("href");
+  const link = $(".linkModuleActionButton").attr("href");
 
   await page.close();
 
-  return { pinUrl, imgSrc, imgAlt, linkHref };
+  return { pinUrl, imgSrc, imgAlt, link };
 };
 
 const crawlBoard = async (page, boardUrl) => {
@@ -50,19 +50,15 @@ const crawlBoard = async (page, boardUrl) => {
           window.scrollTo(0, window.scrollY + 100);
 
           setTimeout(() => {
-            const pins = document.querySelectorAll("[data-test-id=pin]");
+            Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach(
+              pin => {
+                const url = pin.querySelector("a").href;
+                const src = pin.querySelector("img").src;
+                const alt = pin.querySelector("img").alt;
 
-            const pinsProcessed = Array.from(pins).map(pin => {
-              const url = pin.querySelector("a").href;
-              const src = pin.querySelector("img").src;
-              const alt = pin.querySelector("img").alt;
-
-              return { url, src, alt };
-            });
-
-            pinsProcessed.forEach(pin => {
-              allPins[pin.url] = pin;
-            });
+                allPins[url] = { url, src, alt };
+              }
+            );
 
             if (window.scrollY === lastScrollPosition) {
               resolve(Object.values(allPins));
@@ -131,7 +127,8 @@ const run = async () => {
   const boards = await crawlProfile(page, ROOT + "/szymon_k/");
 
   const allPins = await Promise.all(
-    boards.map(async board => {
+    // TODO: all boards
+    [boards[3]].map(async board => {
       const pins = await crawlBoard(page, board);
 
       return pins.map(pin => ({
@@ -151,7 +148,7 @@ const run = async () => {
       4,
       async pinData => {
         const pinDetail = await crawlPin(browser, pinData.url);
-        return { ...pinData, detail: pinDetail };
+        return { ...pinDetail, board: pinData.board };
       },
       async (err, res) => {
         await browser.close();
