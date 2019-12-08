@@ -16,6 +16,7 @@
     "mkdirp": "^0.5.1",
     "node-wget": "^0.4.3",
     "puppeteer": "^2.0.0",
+    "tmp": "^0.1.0",
     "url-status-code": "^1.1.1"
   }
 }

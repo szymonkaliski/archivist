@@ -12,7 +12,7 @@ const DATA_PATH = envPaths("archivist-pinterest").data;
 mkdirp(DATA_PATH);
 
 const makePinId = pin => {
-  return chain(pin.pinUrl)
+  return chain(pin.url)
     .split("/")
     .takeRight(2)
     .first()
@@ -32,9 +32,11 @@ const run = async () => {
     "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
   );
 
-  const crawledPins = await crawler();
-
   const crawledDataPath = path.join(DATA_PATH, "crawled-pins.json");
+
+  const crawledPins = await crawler();
+  // const crawledPins = require(crawledDataPath);
+
   fs.writeFileSync(
     crawledDataPath,
     JSON.stringify(crawledPins, null, 2),
@@ -54,12 +56,14 @@ const run = async () => {
 
   const fetchedPins = await fetcher(newPins);
 
+  console.log(`fetched pins: ${fetchedPins.length}`);
+
   const finalPins = fetchedPins.map(pin => ({
     board: pin.board,
     filename: pin.filename,
-    text: pin.imgAlt || "",
+    text: pin.alt || "",
     link: pin.link,
-    pinurl: pin.pinUrl,
+    pinurl: pin.url,
     pinid: makePinId(pin)
   }));
 
@@ -72,7 +76,7 @@ const run = async () => {
     pins.forEach(pin => insert.run(pin));
   });
 
-  insertPins(finalPins);
+  const result = insertPins(finalPins);
 
   console.timeEnd("run");
 };

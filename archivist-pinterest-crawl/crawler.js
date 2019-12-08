@@ -18,32 +18,30 @@ const crawlPin = async (browser, pinUrl) => {
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
 
-  await page.goto(pinUrl, { waitUntil: "networkidle0" });
+  await page.goto(pinUrl, { waitUntil: "networkidle2" });
 
   const content = await page.content();
   const $ = cheerio.load(content);
 
-  const img = $("[data-test-id=closeup-image] > div > img");
-
-  const imgSrcFromPage = img.attr("src");
-  const imgSrc = imgSrcFromPage.replace(
-    /pinimg.com\/...x\//,
-    "pinimg.com/originals/"
-  );
-
-  const imgAlt = img.attr("alt");
+  //   const img = $("[data-test-id=closeup-image] > div > img");
+  //   const imgSrcFromPage = img.attr("src");
+  //   const imgSrc = imgSrcFromPage.replace(
+  //     /pinimg.com\/...x\//,
+  //     "pinimg.com/originals/"
+  //   );
+  //   const imgAlt = img.attr("alt");
 
   const link = $(".linkModuleActionButton").attr("href");
 
   await page.close();
 
-  return { pinUrl, imgSrc, imgSrcFromPage, imgAlt, link };
+  return { link };
 };
 
 const crawlBoard = async (page, boardUrl) => {
   console.log("crawling board", boardUrl);
 
-  await page.goto(boardUrl, { waitUntil: "networkidle0" });
+  await page.goto(boardUrl, { waitUntil: "networkidle2" });
 
   // scroll down to bottom (hopefully)
   const scrollResult = await page.evaluate(
@@ -58,11 +56,19 @@ const crawlBoard = async (page, boardUrl) => {
           setTimeout(() => {
             Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach(
               pin => {
-                const url = pin.querySelector("a").href;
-                const src = pin.querySelector("img").src;
-                const alt = pin.querySelector("img").alt;
+                const a = pin.querySelector("a");
+                const img = pin.querySelector("img");
 
-                allPins[url] = { url, src, alt };
+                if (a && img) {
+                  const url = a.href;
+                  const src = img.src;
+                  const srcset = img.srcset;
+                  const alt = img.alt;
+
+                  allPins[url] = { url, src, alt, srcset };
+                } else {
+                  console.log("no a/img for", pin);
+                }
               }
             );
 
@@ -72,20 +78,31 @@ const crawlBoard = async (page, boardUrl) => {
               lastScrollPosition = window.scrollY;
               scrollDown();
             }
-          }, 10);
+          }, 100);
         };
 
         scrollDown();
       })
   );
 
-  return scrollResult;
+  return scrollResult.map(pin => {
+    return {
+      ...pin,
+      biggestSrc: chain(pin.srcset)
+        .split(",")
+        .last()
+        .trim()
+        .split(" ")
+        .first()
+        .value()
+    };
+  });
 };
 
 const crawlProfile = async (page, profileUrl) => {
   console.log("crawling profile", profileUrl);
 
-  await page.goto(profileUrl, { waitUntil: "networkidle0" });
+  await page.goto(profileUrl, { waitUntil: "networkidle2" });
 
   const boards = await page.evaluate(() => {
     return Array.from(document.querySelectorAll("[draggable=true]")).map(el => {
@@ -97,7 +114,7 @@ const crawlProfile = async (page, profileUrl) => {
 };
 
 const loginWithCreds = async page => {
-  await page.goto(ROOT, { waitUntil: "networkidle0" });
+  await page.goto(ROOT, { waitUntil: "networkidle2" });
   await page.click("[data-test-id=login-button] > button");
 
   await page.type("#email", CREDS.email);
@@ -113,7 +130,7 @@ const loginWithCookiesFromChrome = async page =>
   new Promise(resolve => {
     chrome.getCookies(ROOT, "puppeteer", (err, cookies) => {
       page.setCookie(...cookies).then(() => {
-        page.goto(ROOT, { waitUntil: "networkidle0" }).then(() => {
+        page.goto(ROOT, { waitUntil: "networkidle2" }).then(() => {
           resolve();
         });
       });
@@ -121,7 +138,7 @@ const loginWithCookiesFromChrome = async page =>
   });
 
 const run = async () => {
-  const headless = true;
+  const headless = false;
   const browser = await puppeteer.launch({ headless });
 
   const page = await browser.newPage();
@@ -132,32 +149,40 @@ const run = async () => {
 
   const boards = await crawlProfile(page, ROOT + "/szymon_k/");
 
-  const allPins = await Promise.all(
-    boards.map(async board => {
-      const pins = await crawlBoard(page, board);
-
-      return pins.map(pin => ({
-        ...pin,
-        board: chain(board)
-          .split("/")
-          .takeRight(2)
-          .first()
-          .value()
-      }));
-    })
-  );
-
   return new Promise(resolve => {
-    async.mapLimit(
-      flatten(allPins),
-      4,
-      async pinData => {
-        const pinDetail = await crawlPin(browser, pinData.url);
-        return { ...pinDetail, board: pinData.board };
-      },
-      async (err, res) => {
-        await browser.close();
-        resolve(res);
+    async.mapSeries(
+      boards,
+      (board, callback) =>
+        crawlBoard(page, board).then(pins => {
+          console.log("board pins:", board, pins.length);
+
+          callback(
+            null,
+            pins.map(pin => ({
+              ...pin,
+              board: chain(board)
+                .split("/")
+                .takeRight(2)
+                .first()
+                .value()
+            }))
+          );
+        }),
+      (err, res) => {
+        async.mapLimit(
+          flatten(res),
+          4,
+          (pin, callback) => {
+            crawlPin(browser, pin.url).then(({ link }) => {
+              callback(null, { ...pin, link });
+            });
+          },
+          (err, res) => {
+            browser.close().then(() => {
+              resolve(res);
+            });
+          }
+        );
       }
     );
   });
