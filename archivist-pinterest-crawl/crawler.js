@@ -24,14 +24,20 @@ const crawlPin = async (browser, pinUrl) => {
   const $ = cheerio.load(content);
 
   const img = $("[data-test-id=closeup-image] > div > img");
-  const imgSrc = img.attr("src");
+
+  const imgSrcFromPage = img.attr("src");
+  const imgSrc = imgSrcFromPage.replace(
+    /pinimg.com\/...x\//,
+    "pinimg.com/originals/"
+  );
+
   const imgAlt = img.attr("alt");
 
   const link = $(".linkModuleActionButton").attr("href");
 
   await page.close();
 
-  return { pinUrl, imgSrc, imgAlt, link };
+  return { pinUrl, imgSrc, imgSrcFromPage, imgAlt, link };
 };
 
 const crawlBoard = async (page, boardUrl) => {
@@ -115,7 +121,7 @@ const loginWithCookiesFromChrome = async page =>
   });
 
 const run = async () => {
-  const headless = false;
+  const headless = true;
   const browser = await puppeteer.launch({ headless });
 
   const page = await browser.newPage();
@@ -127,8 +133,7 @@ const run = async () => {
   const boards = await crawlProfile(page, ROOT + "/szymon_k/");
 
   const allPins = await Promise.all(
-    // TODO: all boards
-    [boards[3]].map(async board => {
+    boards.map(async board => {
       const pins = await crawlBoard(page, board);
 
       return pins.map(pin => ({

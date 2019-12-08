@@ -5,6 +5,7 @@ const md5 = require("md5");
 const mkdirp = require("mkdirp");
 const path = require("path");
 const wget = require("node-wget");
+const urlStatusCode = require("url-status-code");
 
 const TMP_PATH = envPaths("archivist-pinterest").data;
 const DATA_PATH = envPaths("archivist-pinterest").data;
@@ -20,11 +21,10 @@ const download = async url => {
   const tempName = `TMP-${encodeURIComponent(url)}`; // TODO: ?
   const tempPath = path.join(TMP_PATH, tempName);
 
-  return new Promise(resolve =>
+  return new Promise((resolve, reject) =>
     wget({ url, dest: tempPath }, (error, result, body) => {
       if (error) {
-        console.log(error);
-        process.exit(1);
+        return reject(error);
       }
 
       const ext = path.extname(url);
@@ -44,8 +44,15 @@ module.exports = async crawledPins => {
       crawledPins,
       10,
       async pin => {
-        const filename = await download(pin.imgSrc);
-        return { ...pin, filename };
+        return new Promise(resolve => {
+          urlStatusCode(pin.imgSrc, async (err, statusCode) => {
+            const url = statusCode === 200 ? pin.imgSrc : pin.imgSrcFromPage;
+
+            const filename = await download(url);
+
+            resolve({ ...pin, filename });
+          });
+        });
       },
       (err, res) => {
         resolve(res);
