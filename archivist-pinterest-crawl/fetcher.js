@@ -5,7 +5,6 @@ const md5 = require("md5");
 const mkdirp = require("mkdirp");
 const path = require("path");
 const wget = require("node-wget");
-const urlStatusCode = require("url-status-code");
 const tmp = require("tmp");
 
 const TMP_PATH = envPaths("archivist-pinterest").data;

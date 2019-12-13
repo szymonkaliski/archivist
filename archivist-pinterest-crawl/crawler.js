@@ -1,16 +1,12 @@
 const async = require("async");
-const cheerio = require("cheerio");
 const chrome = require("chrome-cookies-secure");
 const puppeteer = require("puppeteer");
 const { chain, flatten } = require("lodash");
 
 const ROOT = "https://pinterest.com";
-const CREDS = require("./.creds.json");
 
-const sleep = time =>
-  new Promise(resolve => {
-    setTimeout(resolve, time);
-  });
+// const CREDS = require("./.creds.json");
+// const sleep = time => new Promise(resolve => setTimeout(resolve, time));
 
 const crawlPin = async (browser, pinUrl) => {
   console.log("crawling pin", pinUrl);
@@ -20,18 +16,25 @@ const crawlPin = async (browser, pinUrl) => {
 
   await page.goto(pinUrl, { waitUntil: "networkidle2" });
 
-  const content = await page.content();
-  const $ = cheerio.load(content);
+  const link = await page.evaluate(() => {
+    const getLink = () => {
+      const link = document.querySelector(".linkModuleActionButton");
+      return link ? link.href : undefined;
+    };
 
-  //   const img = $("[data-test-id=closeup-image] > div > img");
-  //   const imgSrcFromPage = img.attr("src");
-  //   const imgSrc = imgSrcFromPage.replace(
-  //     /pinimg.com\/...x\//,
-  //     "pinimg.com/originals/"
-  //   );
-  //   const imgAlt = img.attr("alt");
+    return new Promise(resolve => {
+      const link = getLink();
 
-  const link = $(".linkModuleActionButton").attr("href");
+      if (link) {
+        resolve(link);
+      } else {
+        // try once more and give up
+        setTimeout(() => {
+          resolve(getLink());
+        }, 500);
+      }
+    });
+  });
 
   await page.close();
 
@@ -113,18 +116,18 @@ const crawlProfile = async (page, profileUrl) => {
   return boards;
 };
 
-const loginWithCreds = async page => {
-  await page.goto(ROOT, { waitUntil: "networkidle2" });
-  await page.click("[data-test-id=login-button] > button");
+// const loginWithCreds = async page => {
+//   await page.goto(ROOT, { waitUntil: "networkidle2" });
+//   await page.click("[data-test-id=login-button] > button");
 
-  await page.type("#email", CREDS.email);
-  await sleep(2000);
-  await page.type("#password", CREDS.password);
-  await sleep(2000);
+//   await page.type("#email", CREDS.email);
+//   await sleep(2000);
+//   await page.type("#password", CREDS.password);
+//   await sleep(2000);
 
-  await page.click(".SignupButton");
-  await page.waitForNavigation();
-};
+//   await page.click(".SignupButton");
+//   await page.waitForNavigation();
+// };
 
 const loginWithCookiesFromChrome = async page =>
   new Promise(resolve => {
@@ -138,7 +141,7 @@ const loginWithCookiesFromChrome = async page =>
   });
 
 const run = async () => {
-  const headless = false;
+  const headless = true;
   const browser = await puppeteer.launch({ headless });
 
   const page = await browser.newPage();

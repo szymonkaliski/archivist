@@ -52,6 +52,7 @@ const run = async () => {
     const pinid = makePinId(pin);
     return searchForPin.get(pinid).count === 0;
   });
+
   console.log(`new pins: ${newPins.length}`);
 
   const fetchedPins = await fetcher(newPins);
