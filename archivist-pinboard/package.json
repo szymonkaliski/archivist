@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "postinstall": "node scripts/compile-freeze-dry.js"
   },
   "keywords": [],
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
@@ -14,9 +14,13 @@
     "better-sqlite3": "^5.4.3",
     "dotenv": "^8.2.0",
     "env-paths": "^2.2.0",
+    "freeze-dry": "^0.2.4",
     "md5": "^2.2.1",
     "mkdirp": "^0.5.1",
     "node-pinboard": "^1.0.0",
     "puppeteer": "^2.0.0"
+  },
+  "devDependencies": {
+    "browserify": "^16.5.0"
   }
 }
