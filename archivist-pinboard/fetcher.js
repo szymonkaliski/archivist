@@ -38,7 +38,10 @@ const screenshotPage = async (browser, link) => {
 
   await page.close();
 
-  return { screenshotPath, frozenPath };
+  return {
+    screenshot: path.basename(screenshotPath),
+    frozen: path.basename(frozenPath)
+  };
 };
 
 const run = async links => {
@@ -47,12 +50,18 @@ const run = async links => {
 
   return new Promise((resolve, reject) => {
     async.mapLimit(
-      links.slice(0, 10),
-      5,
+      links,
+      10,
       (link, callback) => {
-        screenshotPage(browser, link.href).then(paths => {
-          callback(null, { ...link, paths });
-        });
+        screenshotPage(browser, link.href)
+          .then(paths => {
+            callback(null, { ...link, paths });
+          })
+          .catch(() => {
+            console.log("error navigating/downloading:", link.href);
+            // ignoring errors for now
+            callback(null);
+          });
       },
       (err, res) => {
         browser.close().then(() => {

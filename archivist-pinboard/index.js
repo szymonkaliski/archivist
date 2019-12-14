@@ -45,7 +45,7 @@ const run = async () => {
       tags TEXT,
       time DATETIME,
       screenshot TEXT,
-      freeze TEXT
+      frozen TEXT
     )
     `
   ).run();
@@ -55,30 +55,12 @@ const run = async () => {
   );
 
   const insert = db.prepare(
-    `INSERT OR REPLACE INTO data (href,   hash,   meta,  description,  extended,  tags,  time,  screenshot,  freeze)
-     VALUES                      (:href, :hash,  :meta, :description, :extended, :tags, :time, :screenshot, :freeze)`
+    `INSERT OR REPLACE INTO data (href,   hash,  meta,  description,  extended,  tags,  time,  screenshot,  frozen)
+     VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen)`
   );
 
-  // const crawledLinks = await crawlLinks();
-  const crawledLinks = require(CRAWLED_DATA_PATH);
-
-  // {
-  //   href: 'https://github.com/samsquire/ideas',
-  //   description: 'samsquire/ideas: a record of ideas',
-  //   extended: '',
-  //   meta: '9131eb46af68b12dc999cc96e58da527',
-  //   hash: 'a01097201949e7a0f22b50122bf9d959',
-  //   time: '2019-12-08T07:49:09Z',
-  //   shared: 'no',
-  //   toread: 'no',
-  //   tags: 'ideas inspiration reference'
-  // }
-
-  // TODO:
-  // fetch
-  //   freezedry
-  //   screenshot
-  // store to DB
+  const crawledLinks = await crawlLinks();
+  // const crawledLinks = require(CRAWLED_DATA_PATH);
 
   fs.writeFileSync(
     CRAWLED_DATA_PATH,
@@ -94,7 +76,25 @@ const run = async () => {
 
   const fetchedLinks = await fetcher(newLinks);
 
-  console.log({ fetchedLinks });
+  const finalLinks = fetchedLinks
+    .filter(link => !!link)
+    .map(link => ({
+      href: link.href,
+      hash: link.hash,
+      meta: link.meta,
+      description: link.description,
+      extended: link.extended,
+      tags: link.tags,
+      time: link.time,
+      screenshot: link.paths.screenshot,
+      frozen: link.paths.frozen
+    }));
+
+  const insertLinks = db.transaction(links => {
+    links.forEach(link => insert.run(link));
+  });
+
+  insertLinks(finalLinks);
 
   console.timeEnd("run");
 };

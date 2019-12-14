@@ -77,7 +77,7 @@ const run = async () => {
     pins.forEach(pin => insert.run(pin));
   });
 
-  const result = insertPins(finalPins);
+  insertPins(finalPins);
 
   console.timeEnd("run");
 };
