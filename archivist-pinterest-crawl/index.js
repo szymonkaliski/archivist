@@ -11,6 +11,8 @@ const fetcher = require("./fetcher");
 const DATA_PATH = envPaths("archivist-pinterest").data;
 mkdirp(DATA_PATH);
 
+const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-pins.json");
+
 const makePinId = pin => {
   return chain(pin.url)
     .split("/")
@@ -32,17 +34,15 @@ const run = async () => {
     "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
   );
 
-  const crawledDataPath = path.join(DATA_PATH, "crawled-pins.json");
-
   const crawledPins = await crawler();
-  // const crawledPins = require(crawledDataPath);
+  // const crawledPins = require(CRAWLED_DATA_PATH);
 
   fs.writeFileSync(
-    crawledDataPath,
+    CRAWLED_DATA_PATH,
     JSON.stringify(crawledPins, null, 2),
     "utf-8"
   );
-  console.log(`crawled data saved to ${crawledDataPath}`);
+  console.log(`crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newPins = crawledPins.filter(pin => {
     if (!pin) {
