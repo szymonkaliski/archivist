@@ -77,7 +77,7 @@ const run = async () => {
   const fetchedLinks = await fetcher(newLinks);
 
   const finalLinks = fetchedLinks
-    .filter(link => !!link)
+    .filter(link => link && link.paths)
     .map(link => ({
       href: link.href,
       hash: link.hash,
