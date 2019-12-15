@@ -96,6 +96,8 @@ const run = async () => {
 
   insertLinks(finalLinks);
 
+  console.log(`insterted links: ${finalLinks.length} (of ${newLinks.length})`);
+
   console.timeEnd("run");
 };
 

@@ -91,7 +91,7 @@ const run = async links => {
   return new Promise((resolve, reject) => {
     async.mapLimit(
       links,
-      10,
+      20,
       (link, callback) => {
         screenshotPage(browser, link.href)
           .then(paths => {
