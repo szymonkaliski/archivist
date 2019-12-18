@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const async = require("async");
 const Database = require("better-sqlite3");
 const Pinboard = require("node-pinboard");
 const envPaths = require("env-paths");
@@ -10,7 +11,11 @@ const path = require("path");
 const fetcher = require("./fetcher");
 
 const DATA_PATH = envPaths("archivist-pinboard").data;
-mkdirp(DATA_PATH);
+const ASSETS_PATH = path.join(DATA_PATH, "assets");
+const FROZEN_PATH = path.join(DATA_PATH, "frozen");
+
+mkdirp(ASSETS_PATH);
+mkdirp(FROZEN_PATH);
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-links.json");
 
@@ -28,6 +33,34 @@ const crawlLinks = async () =>
     });
   });
 
+const processRemovedLinks = async removedLinks => {
+  return new Promise(resolve => {
+    async.mapLimit(
+      removedLinks,
+      10,
+      (item, callback) => {
+        const screenshotPath =
+          item.screenshot && path.join(ASSETS_PATH, item.screenshot);
+
+        const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
+
+        if (screenshotPath && fs.existsSync(screenshotPath)) {
+          console.log(`unlinking ${screenshotPath}`);
+          fs.unlinkSync(screenshotPath);
+        }
+
+        if (frozenPath && fs.existsSync(frozenPath)) {
+          console.log(`unlinking ${frozenPath}`);
+          fs.unlinkSync(frozenPath);
+        }
+
+        callback(null, item.hash);
+      },
+      (err, hashes) => resolve(hashes)
+    );
+  });
+};
+
 const run = async () => {
   console.time("run");
 
@@ -37,7 +70,7 @@ const run = async () => {
     `
     CREATE TABLE IF NOT EXISTS data (
       href TEXT,
-      hash TEXT
+      hash TEXT UNIQUE,
       PRIMARY KEY,
       meta TEXT,
       description TEXT,
@@ -59,6 +92,10 @@ const run = async () => {
      VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen)`
   );
 
+  const remove = db.prepare("DELETE FROM data WHERE hash = ?");
+
+  const dbLinks = db.prepare("SELECT * FROM data").all();
+
   const crawledLinks = await crawlLinks();
   // const crawledLinks = require(CRAWLED_DATA_PATH);
 
@@ -68,11 +105,25 @@ const run = async () => {
     "utf-8"
   );
 
-  const newLinks = crawledLinks.filter(link => {
-    return searchForLink.get(link.hash).count === 0;
+  const newLinks = crawledLinks.filter(
+    link => searchForLink.get(link.hash).count === 0
+  );
+
+  const removedLinks = dbLinks.filter(
+    ({ hash }) => !crawledLinks.find(l => l.hash === hash)
+  );
+
+  console.log(
+    `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removedLinks: ${removedLinks.length}`
+  );
+
+  const hashesToRemove = await processRemovedLinks(removedLinks);
+
+  const removeLinks = db.transaction(hashes => {
+    hashes.forEach(hash => remove.run(hash));
   });
 
-  console.log(`new links: ${newLinks.length}`);
+  removeLinks(hashesToRemove);
 
   const fetchedLinks = await fetcher(newLinks);
 
