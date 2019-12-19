@@ -11,6 +11,7 @@
     "better-sqlite3": "^5.4.3",
     "cheerio": "^1.0.0-rc.3",
     "chrome-cookies-secure": "^1.2.0",
+    "dateformat": "^3.0.3",
     "env-paths": "^2.2.0",
     "md5": "^2.2.1",
     "mkdirp": "^0.5.1",

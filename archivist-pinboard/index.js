@@ -70,8 +70,7 @@ const run = async () => {
     `
     CREATE TABLE IF NOT EXISTS data (
       href TEXT,
-      hash TEXT UNIQUE,
-      PRIMARY KEY,
+      hash TEXT PRIMARY KEY,
       meta TEXT,
       description TEXT,
       extended TEXT,
@@ -83,7 +82,7 @@ const run = async () => {
     `
   ).run();
 
-  const searchForLink = db.prepare(
+  const search = db.prepare(
     "SELECT count(hash) AS count FROM data WHERE hash = ?"
   );
 
@@ -104,9 +103,10 @@ const run = async () => {
     JSON.stringify(crawledLinks, null, 2),
     "utf-8"
   );
+  console.log(`crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newLinks = crawledLinks.filter(
-    link => searchForLink.get(link.hash).count === 0
+    link => search.get(link.hash).count === 0
   );
 
   const removedLinks = dbLinks.filter(
@@ -114,7 +114,7 @@ const run = async () => {
   );
 
   console.log(
-    `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removedLinks: ${removedLinks.length}`
+    `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removed links: ${removedLinks.length}`
   );
 
   const hashesToRemove = await processRemovedLinks(removedLinks);

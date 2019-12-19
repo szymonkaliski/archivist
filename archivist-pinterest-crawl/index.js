@@ -1,6 +1,8 @@
-const fs = require("fs");
 const Database = require("better-sqlite3");
+const async = require("async");
+const dateFormat = require("dateformat");
 const envPaths = require("env-paths");
+const fs = require("fs");
 const mkdirp = require("mkdirp");
 const path = require("path");
 const { chain } = require("lodash");
@@ -21,18 +23,57 @@ const makePinId = pin => {
     .value();
 };
 
+const processRemovedPins = async removedPins => {
+  return new Promise(resolve => {
+    async.mapLimit(
+      removedPins,
+      10,
+      (item, callback) => {
+        const filePath = item.filename && path.join(DATA_PATH, item.filename);
+
+        if (filePath && fs.existsSync(filePath)) {
+          console.log(`unlinking ${filePath}`);
+          fs.unlinkSync(filePath);
+        }
+
+        callback(null, item.pinid);
+      },
+      (err, pinids) => resolve(pinids)
+    );
+  });
+};
+
 const run = async () => {
   console.time("run");
 
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
   db.prepare(
-    "CREATE TABLE IF NOT EXISTS data (board TEXT, filename TEXT, text TEXT, link TEXT, pinurl TEXT, pinid TEXT PRIMARY KEY)"
+    `
+    CREATE TABLE IF NOT EXISTS data (
+    board TEXT,
+      filename TEXT,
+      text TEXT,
+      link TEXT,
+      pinurl TEXT,
+      pinid TEXT PRIMARY KEY,
+      crawldate DATETIME
+    )
+    `
   ).run();
 
-  const searchForPin = db.prepare(
+  const search = db.prepare(
     "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
   );
+
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO data (board,   filename,  text,  link,  pinurl,  pinid,  crawldate)
+     VALUES                      (:board, :filename, :text, :link, :pinurl, :pinid, :crawldate)`
+  );
+
+  const remove = db.prepare("DELETE FROM data WHERE pinid = ?");
+
+  const dbPins = db.prepare("SELECT * FROM data").all();
 
   const crawledPins = await crawler();
   // const crawledPins = require(CRAWLED_DATA_PATH);
@@ -50,14 +91,28 @@ const run = async () => {
     }
 
     const pinid = makePinId(pin);
-    return searchForPin.get(pinid).count === 0;
+    return search.get(pinid).count === 0;
   });
 
-  console.log(`new pins: ${newPins.length}`);
+  const removedPins = dbPins.filter(
+    ({ pinid }) => !crawledPins.find(pin => makePinId(pin) === pinid)
+  );
+
+  console.log(
+    `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`
+  );
+
+  const pinidsToRemove = await processRemovedPins(removedPins);
+
+  const removePins = db.transaction(pinids => {
+    pinids.forEach(pinid => remove.run(pinid));
+  });
+
+  removePins(pinidsToRemove);
 
   const fetchedPins = await fetcher(newPins);
 
-  console.log(`fetched pins: ${fetchedPins.length}`);
+  const crawldate = dateFormat(new Date(), "isoDateTime");
 
   const finalPins = fetchedPins.map(pin => ({
     board: pin.board,
@@ -65,19 +120,17 @@ const run = async () => {
     text: pin.alt || "",
     link: pin.link,
     pinurl: pin.url,
-    pinid: makePinId(pin)
+    pinid: makePinId(pin),
+    crawldate
   }));
-
-  const insert = db.prepare(
-    `INSERT OR REPLACE INTO data (board,   filename,  text,  link,  pinurl,  pinid)
-     VALUES                      (:board, :filename, :text, :link, :pinurl, :pinid)`
-  );
 
   const insertPins = db.transaction(pins => {
     pins.forEach(pin => insert.run(pin));
   });
 
   insertPins(finalPins);
+
+  console.log(`inserted pins: ${finalPins.length} (of ${newPins.length})`);
 
   console.timeEnd("run");
 };
