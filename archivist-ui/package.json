@@ -1,0 +1,17 @@
+{
+  "name": "archivist-ui",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "start": "electron index.js"
+  },
+  "keywords": [],
+  "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
+  "license": "MIT",
+  "devDependencies": {
+    "electron-reloader": "^0.3.0"
+  },
+  "dependencies": {
+    "electron": "^7.1.6"
+  }
+}
