@@ -12,6 +12,11 @@
     "electron-reloader": "^0.3.0"
   },
   "dependencies": {
-    "electron": "^7.1.6"
+    "@babel/core": "^7.7.7",
+    "@babel/preset-react": "^7.7.4",
+    "@babel/register": "^7.7.7",
+    "electron": "^7.1.6",
+    "react": "^16.12.0",
+    "react-dom": "^16.12.0"
   }
 }

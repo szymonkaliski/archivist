@@ -8,8 +8,15 @@ try {
 const run = async () => {
   await app.whenReady();
 
-  const mainWindow = new BrowserWindow();
-  await mainWindow.loadFile(path.join(__dirname, "index.html"));
+  const mainWindow = new BrowserWindow({
+    webPreferences: {
+      nodeIntegration: true
+    }
+  });
+
+  mainWindow.openDevTools();
+
+  await mainWindow.loadFile(path.join(__dirname, "frontend/index.html"));
 };
 
 run();

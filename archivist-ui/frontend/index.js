@@ -1,1 +1,5 @@
-console.log("HI!!!");
+require("@babel/register")({
+  presets: ["@babel/preset-react"]
+});
+
+require("./app");
