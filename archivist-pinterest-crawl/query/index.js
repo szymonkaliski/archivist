@@ -2,9 +2,8 @@ const envPaths = require("env-paths");
 const Database = require("better-sqlite3");
 const path = require("path");
 
-const DATA_PATH = envPaths("archivist-pinboard").data;
+const DATA_PATH = envPaths("archivist-pinterest").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
-const FROZEN_PATH = path.join(DATA_PATH, "frozen");
 
 const query = async text => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
@@ -17,10 +16,9 @@ const query = async text => {
         SELECT *
         FROM data
         WHERE
-          description LIKE :query OR
-          extended LIKE :query OR
-          tags LIKE :query OR
-          href LIKE :query
+          board LIKE :query OR
+          text LIKE :query OR
+          link LIKE :query
         `
       )
       .all({ query: `%${text}%` });
@@ -30,17 +28,17 @@ const query = async text => {
 
   return search.map(d => ({
     // must-have
-    img: path.join(ASSETS_PATH, d.screenshot),
-    link: d.href,
-    id: d.hash,
-    time: new Date(d.time),
+    img: path.join(ASSETS_PATH, d.filename),
+    link: d.link,
+    id: d.pinid,
+    time: new Date(d.crawldate),
 
     // TODO: editable meta
     meta: {
-      title: d.description,
-      note: d.extended,
-      tags: d.tags.split(" "),
-      static: path.join(FROZEN_PATH, d.frozen)
+      // title
+      // static
+      note: d.text,
+      tags: [d.board]
     }
   }));
 };
