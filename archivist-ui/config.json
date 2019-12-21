@@ -1,0 +1,3 @@
+{
+  "crawlers": ["../archivist-pinboard", "../archivist-pinterest-crawl"]
+}
