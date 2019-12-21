@@ -16,7 +16,7 @@ mkdirp(FROZEN_PATH);
 
 const FREEZE_DRY_PATH = path.join(
   __dirname,
-  "assets/freeze-dry-browserified.js"
+  "./assets/freeze-dry-browserified.js"
 );
 
 const FREEZE_DRY_SRC = fs.readFileSync(FREEZE_DRY_PATH, "utf-8");

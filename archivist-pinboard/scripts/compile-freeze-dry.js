@@ -2,7 +2,7 @@ const path = require("path");
 const browserify = require("browserify");
 
 const freezeDryFunction = require("fs").createWriteStream(
-  path.resolve(__dirname, "../assets/freeze-dry-browserified.js")
+  path.resolve(__dirname, "../fetch/assets/freeze-dry-browserified.js")
 );
 
 freezeDryFunction.write("window.freezeDry = (async () => {\n");
