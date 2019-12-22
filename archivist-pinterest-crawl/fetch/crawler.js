@@ -36,9 +36,36 @@ const crawlPin = async (browser, pinUrl) => {
     });
   });
 
+  const date = await page.evaluate(() => {
+    const getDate = () => {
+      let date;
+
+      try {
+        date = Object.values(
+          JSON.parse(document.getElementById("initial-state").innerText).pins
+        ).map(p => p.created_at)[0];
+      } catch (e) {}
+
+      return date;
+    };
+
+    return new Promise(resolve => {
+      const date = getDate();
+
+      if (date) {
+        resolve(date);
+      } else {
+        // try once more and give up
+        setTimeout(() => {
+          resolve(getDate());
+        }, 500);
+      }
+    });
+  });
+
   await page.close();
 
-  return { link };
+  return { link, date };
 };
 
 const crawlBoard = async (page, boardUrl) => {
@@ -176,8 +203,8 @@ const run = async () => {
           flatten(res),
           4,
           (pin, callback) => {
-            crawlPin(browser, pin.url).then(({ link }) => {
-              callback(null, { ...pin, link });
+            crawlPin(browser, pin.url).then(({ link, date }) => {
+              callback(null, { ...pin, link, createdAt: date });
             });
           },
           (err, res) => {

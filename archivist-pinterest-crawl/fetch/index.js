@@ -57,7 +57,8 @@ const run = async () => {
       link TEXT,
       pinurl TEXT,
       pinid TEXT PRIMARY KEY,
-      crawldate DATETIME
+      crawldate DATETIME,
+      createdat DATETIME
     )
     `
   ).run();
@@ -67,8 +68,8 @@ const run = async () => {
   );
 
   const insert = db.prepare(
-    `INSERT OR REPLACE INTO data (board,   filename,  text,  link,  pinurl,  pinid,  crawldate)
-     VALUES                      (:board, :filename, :text, :link, :pinurl, :pinid, :crawldate)`
+    `INSERT OR REPLACE INTO data (board,   filename,  text,  link,  pinurl,  pinid,  crawldate,  createdat)
+     VALUES                      (:board, :filename, :text, :link, :pinurl, :pinid, :crawldate, :createdat)`
   );
 
   const remove = db.prepare("DELETE FROM data WHERE pinid = ?");
@@ -121,7 +122,10 @@ const run = async () => {
     link: pin.link,
     pinurl: pin.url,
     pinid: makePinId(pin),
-    crawldate
+    crawldate,
+    createdat: pin.createdAt
+      ? dateFormate(new Date(pin.createdAt), "isoDateTime")
+      : undefined
   }));
 
   const insertPins = db.transaction(pins => {
