@@ -31,7 +31,10 @@ const query = async text => {
     img: path.join(ASSETS_PATH, d.filename),
     link: d.link,
     id: d.pinid,
-    time: d.crawldate,
+    time: d.createdat || d.crawldate,
+
+    width: d.width,
+    height: d.height,
 
     // TODO: editable meta
     meta: {

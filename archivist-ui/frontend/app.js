@@ -1,11 +1,20 @@
 const React = require("react");
 const ReactDOM = require("react-dom");
-const { Grid, AutoSizer } = require("react-virtualized");
 const { chain } = require("lodash");
-
-const { useState, useEffect } = React;
-
 const { spawn } = require("child_process");
+
+const {
+  AutoSizer,
+  CellMeasurer,
+  CellMeasurerCache,
+  createMasonryCellPositioner,
+  Masonry
+} = require("react-virtualized");
+
+const { useState, useEffect, useCallback, useRef } = React;
+
+const SPACER = 10;
+
 const talkToProcess = async (command, args) => {
   return new Promise(resolve => {
     const process = spawn(
@@ -29,44 +38,30 @@ const talkToProcess = async (command, args) => {
   });
 };
 
-const Item = ({ img, link }) => {
-  return (
-    <div className="h-100 pa2">
-      <div
-        className="h-100"
-        style={{
-          backgroundImage: `url("${img}")`,
-          backgroundSize: "contain",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "center"
-        }}
-      />
-    </div>
-  );
-};
-
-const createCellRenderer = ({ data, columnCount }) => ({
-  columnIndex,
-  rowIndex,
-  key,
-  style
-}) => {
-  const index = columnIndex + rowIndex * columnCount;
-  const hasData = !!data[index];
-
-  return (
-    <div key={key} style={style}>
-      {hasData ? <Item {...data[index]} /> : null}
-    </div>
-  );
-};
-
-const calcCellSize = ({ width }) => {
-  return width / Math.floor(width / 500);
+const calcColumnWidth = ({ width }) => {
+  return width / Math.floor(width / 400) - SPACER;
 };
 
 const App = () => {
   const [data, setData] = useState([]);
+  const masonry = useRef(null);
+
+  const cache = useRef(
+    new CellMeasurerCache({
+      defaultHeight: 400,
+      defaultWidth: 400,
+      fixedWidth: true
+    })
+  );
+
+  const cellPositioner = useRef(
+    createMasonryCellPositioner({
+      cellMeasurerCache: cache.current,
+      columnCount: 3,
+      columnWidth: 400,
+      spacer: SPACER
+    })
+  );
 
   useEffect(() => {
     talkToProcess("query").then(data => {
@@ -77,31 +72,70 @@ const App = () => {
         .value();
 
       setData(finalData);
-
-      console.log(finalData);
     });
   }, []);
 
-  return (
-    <div className="sans-serif w-100 vh-100 bg-light-gray">
-      <AutoSizer>
-        {({ width, height }) => {
-          const cellSize = calcCellSize({ width, height });
-          const columnCount = Math.max(width / cellSize, 1);
-          const cellRenderer = createCellRenderer({ data, columnCount });
+  const onResize = useCallback(({ width }) => {
+    const columnWidth = calcColumnWidth({ width });
+    const columnCount = Math.floor(Math.max(width / columnWidth, 1));
 
-          return (
-            <Grid
-              cellRenderer={cellRenderer}
-              columnCount={columnCount}
-              columnWidth={cellSize}
-              rowHeight={(cellSize * 9) / 16}
-              rowCount={Math.ceil(data.length / columnCount)}
-              height={height}
-              width={width}
-            />
-          );
-        }}
+    cache.current.clearAll();
+
+    cellPositioner.current.reset({
+      columnCount,
+      columnWidth,
+      spacer: SPACER
+    });
+
+    masonry.current.clearCellPositions();
+  });
+
+  const createCellRenderer = ({ width }) => ({ index, key, parent, style }) => {
+    const columnWidth = calcColumnWidth({ width });
+    const datum = data[index];
+    const ratio = datum.height / datum.width;
+
+    return (
+      <CellMeasurer
+        cache={cache.current}
+        index={index}
+        key={key}
+        parent={parent}
+      >
+        <div style={style} className="h-100">
+          <div
+            className="h-100"
+            style={{
+              height: ratio * columnWidth,
+              width: columnWidth,
+              backgroundImage: `url("${datum.img}")`,
+              backgroundSize: "contain",
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "center"
+            }}
+          />
+        </div>
+      </CellMeasurer>
+    );
+  };
+
+  return (
+    <div
+      className="sans-serif w-100 vh-100 bg-light-gray"
+      style={{ padding: SPACER }}
+    >
+      <AutoSizer onResize={onResize} style={{ outline: "none" }}>
+        {({ width, height }) => (
+          <Masonry
+            ref={masonry}
+            cellCount={data.length}
+            cellMeasurerCache={cache.current}
+            cellPositioner={cellPositioner.current}
+            cellRenderer={createCellRenderer({ width })}
+            width={width}
+            height={height}
+          />
+        )}
       </AutoSizer>
     </div>
   );

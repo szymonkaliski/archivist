@@ -13,6 +13,7 @@
     "chrome-cookies-secure": "^1.2.0",
     "dateformat": "^3.0.3",
     "env-paths": "^2.2.0",
+    "image-size": "^0.8.3",
     "md5": "^2.2.1",
     "mkdirp": "^0.5.1",
     "node-wget": "^0.4.3",

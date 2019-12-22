@@ -4,8 +4,9 @@ const fs = require("fs");
 const md5 = require("md5");
 const mkdirp = require("mkdirp");
 const path = require("path");
-const wget = require("node-wget");
+const sizeOf = require("image-size");
 const tmp = require("tmp");
+const wget = require("node-wget");
 
 const TMP_PATH = envPaths("archivist-pinterest").data;
 const DATA_PATH = envPaths("archivist-pinterest").data;
@@ -29,10 +30,18 @@ const download = async url => {
       const ext = path.extname(url);
       const hash = md5(body);
       const filename = `${hash}${ext}`;
+      const finalPath = path.join(ASSETS_PATH, filename);
 
-      fs.renameSync(tempPath, path.join(ASSETS_PATH, filename));
+      fs.renameSync(tempPath, finalPath);
 
-      resolve(filename);
+      sizeOf(finalPath, (err, size) => {
+        if (err) {
+          console.log(`image-size error: ${err} (${finalPath})`)
+          resolve({ filename, width: 0, height: 0 });
+        } else {
+          resolve({ filename, ...size });
+        }
+      });
     })
   );
 };
@@ -43,8 +52,8 @@ module.exports = async crawledPins => {
       crawledPins,
       10,
       async pin => {
-        const filename = await download(pin.biggestSrc);
-        return { ...pin, filename };
+        const { filename, width, height } = await download(pin.biggestSrc);
+        return { ...pin, filename, width, height };
       },
       (err, res) => {
         resolve(res);

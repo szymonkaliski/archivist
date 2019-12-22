@@ -35,6 +35,9 @@ const query = async text => {
     id: d.hash,
     time: d.time,
 
+    width: 1920,
+    height: 1080,
+
     // TODO: editable meta
     meta: {
       title: d.description,
