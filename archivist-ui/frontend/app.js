@@ -3,6 +3,7 @@ const ReactDOM = require("react-dom");
 const { chain, identity } = require("lodash");
 const { shell } = require("electron");
 const { spawn } = require("child_process");
+const { useHotkeys } = require("react-hotkeys-hook");
 
 const {
   AutoSizer,
@@ -48,15 +49,13 @@ const HoverInfo = ({ meta, link, img }) => (
     className="absolute bg-dark-gray pa2 f7 white"
     style={{ bottom: 0, left: 0, right: 0 }}
   >
-    {meta.title && (
-      <a
-        className="f6 mb2 lh-title no-underline underline-hover white db"
-        href="#"
-        onClick={() => shell.openExternal(link)}
-      >
-        {meta.title}
-      </a>
-    )}
+    <a
+      className="f6 mb2 lh-title no-underline underline-hover white db"
+      href="#"
+      onClick={() => shell.openExternal(link)}
+    >
+      {meta.title || link}
+    </a>
 
     {meta.note && <div className="mb2 lh-copy">{meta.note}</div>}
 
@@ -94,6 +93,11 @@ const createCellRenderer = ({
 }) => ({ index, key, parent, style }) => {
   const columnWidth = calcColumnWidth({ width });
   const datum = data[index];
+
+  if (!datum) {
+    return null;
+  }
+
   const ratio = datum.height / datum.width;
 
   return (
@@ -126,10 +130,43 @@ const createCellRenderer = ({
   );
 };
 
+const SearchOverlay = ({ searchText, setSearchText, setIsSearching }) => {
+  return (
+    <div className="absolute">
+      <input
+        autoFocus={true}
+        value={searchText}
+        onChange={e => setSearchText(e.target.value)}
+        onKeyDown={e => {
+          // escape
+          if (e.keyCode === 27) {
+            setIsSearching(false);
+          }
+        }}
+      />
+    </div>
+  );
+};
+
 const App = () => {
   const [data, setData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]);
   const [hoveredId, setHoveredId] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchText, setSearchText] = useState("");
   const masonry = useRef(null);
+
+  useHotkeys(
+    "/",
+    () => {
+      if (!isSearching) {
+        setIsSearching(true);
+      }
+
+      return false;
+    },
+    [isSearching]
+  );
 
   const cache = useRef(
     new CellMeasurerCache({
@@ -160,44 +197,85 @@ const App = () => {
     });
   }, []);
 
-  const onResize = useCallback(({ width }) => {
-    const columnWidth = calcColumnWidth({ width });
-    const columnCount = Math.floor(Math.max(width / columnWidth, 1));
+  const onResize = useCallback(
+    ({ width }) => {
+      const columnWidth = calcColumnWidth({ width });
+      const columnCount = Math.floor(Math.max(width / columnWidth, 1));
 
-    cache.current.clearAll();
+      if (cache.current) {
+        cache.current.clearAll();
+      }
 
-    cellPositioner.current.reset({
-      columnCount,
-      columnWidth,
-      spacer: SPACER
-    });
+      if (cellPositioner.current) {
+        cellPositioner.current.reset({
+          columnCount,
+          columnWidth,
+          spacer: SPACER
+        });
+      }
 
-    masonry.current.clearCellPositions();
-  });
+      if (masonry.current) {
+        masonry.current.clearCellPositions();
+      }
+    },
+    [cache, cellPositioner, masonry]
+  );
+
+  useEffect(() => {
+    if (searchText.length > 0) {
+      const lowerSearchText = searchText.toLowerCase();
+
+      setFilteredData(
+        data.filter(d => {
+          return [d.link, d.meta.title, d.meta.note, ...(d.meta.tags || [])]
+            .filter(identity)
+            .some(t => t.includes(lowerSearchText));
+        })
+      );
+    } else {
+      setFilteredData(data);
+    }
+  }, [data, searchText]);
 
   return (
     <div className="sans-serif w-100 vh-100 bg-light-gray">
-      <AutoSizer onResize={onResize} style={{ outline: "none" }}>
-        {({ width, height }) => (
-          <Masonry
-            style={{ padding: SPACER }}
-            overscanByPixels={300}
-            ref={masonry}
-            cellCount={data.length}
-            cellMeasurerCache={cache.current}
-            cellPositioner={cellPositioner.current}
-            cellRenderer={createCellRenderer({
-              data,
-              width,
-              cache,
-              setHoveredId,
-              hoveredId
-            })}
-            width={width}
-            height={height}
-          />
-        )}
+      <AutoSizer
+        key={searchText + "-" + filteredData.length}
+        onResize={onResize}
+        style={{ outline: "none" }}
+      >
+        {({ width, height }) =>
+          filteredData.length > 0 ? (
+            <Masonry
+              style={{ padding: SPACER }}
+              overscanByPixels={300}
+              ref={masonry}
+              cellCount={filteredData.length}
+              cellMeasurerCache={cache.current}
+              cellPositioner={cellPositioner.current}
+              cellRenderer={createCellRenderer({
+                data: filteredData,
+                width,
+                cache,
+                setHoveredId,
+                hoveredId
+              })}
+              width={width}
+              height={height}
+            />
+          ) : (
+            <div />
+          )
+        }
       </AutoSizer>
+
+      {isSearching && (
+        <SearchOverlay
+          setIsSearching={setIsSearching}
+          searchText={searchText}
+          setSearchText={setSearchText}
+        />
+      )}
     </div>
   );
 };
