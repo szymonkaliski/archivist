@@ -1,6 +1,7 @@
 const React = require("react");
 const ReactDOM = require("react-dom");
-const { chain } = require("lodash");
+const { chain, identity } = require("lodash");
+const { shell } = require("electron");
 const { spawn } = require("child_process");
 
 const {
@@ -42,8 +43,92 @@ const calcColumnWidth = ({ width }) => {
   return width / Math.floor(width / 400) - SPACER;
 };
 
+const HoverInfo = ({ meta, link, img }) => (
+  <div
+    className="absolute bg-dark-gray pa2 f7 white"
+    style={{ bottom: 0, left: 0, right: 0 }}
+  >
+    {meta.title && (
+      <a
+        className="f6 mb2 lh-title no-underline underline-hover white db"
+        href="#"
+        onClick={() => shell.openExternal(link)}
+      >
+        {meta.title}
+      </a>
+    )}
+
+    {meta.note && <div className="mb2 lh-copy">{meta.note}</div>}
+
+    {meta.tags && (
+      <div className="light-gray">{meta.tags.map(t => `#${t}`).join(", ")}</div>
+    )}
+
+    <div className="mt2">
+      {[
+        ["src", () => shell.openExternal(link)],
+        meta.static && ["frozen", () => shell.openItem(meta.static)],
+        ["img", () => shell.openItem(img)]
+      ]
+        .filter(identity)
+        .map(([text, callback]) => (
+          <a
+            key={text}
+            className="link dim br2 ph2 pv1 dib white bg-mid-gray mr1"
+            href="#"
+            onClick={callback}
+          >
+            {text}
+          </a>
+        ))}
+    </div>
+  </div>
+);
+
+const createCellRenderer = ({
+  data,
+  width,
+  cache,
+  setHoveredId,
+  hoveredId
+}) => ({ index, key, parent, style }) => {
+  const columnWidth = calcColumnWidth({ width });
+  const datum = data[index];
+  const ratio = datum.height / datum.width;
+
+  return (
+    <CellMeasurer cache={cache.current} index={index} key={key} parent={parent}>
+      <div
+        style={style}
+        className="h-100"
+        onMouseEnter={() => {
+          setHoveredId(datum.id);
+        }}
+        onMouseLeave={() => {
+          setHoveredId(null);
+        }}
+      >
+        <div
+          className="h-100 relative"
+          style={{
+            height: ratio * columnWidth,
+            width: columnWidth,
+            backgroundImage: `url("${datum.img}")`,
+            backgroundSize: "contain",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center"
+          }}
+        >
+          {hoveredId === datum.id && <HoverInfo {...datum} />}
+        </div>
+      </div>
+    </CellMeasurer>
+  );
+};
+
 const App = () => {
   const [data, setData] = useState([]);
+  const [hoveredId, setHoveredId] = useState(null);
   const masonry = useRef(null);
 
   const cache = useRef(
@@ -90,48 +175,24 @@ const App = () => {
     masonry.current.clearCellPositions();
   });
 
-  const createCellRenderer = ({ width }) => ({ index, key, parent, style }) => {
-    const columnWidth = calcColumnWidth({ width });
-    const datum = data[index];
-    const ratio = datum.height / datum.width;
-
-    return (
-      <CellMeasurer
-        cache={cache.current}
-        index={index}
-        key={key}
-        parent={parent}
-      >
-        <div style={style} className="h-100">
-          <div
-            className="h-100"
-            style={{
-              height: ratio * columnWidth,
-              width: columnWidth,
-              backgroundImage: `url("${datum.img}")`,
-              backgroundSize: "contain",
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "center"
-            }}
-          />
-        </div>
-      </CellMeasurer>
-    );
-  };
-
   return (
-    <div
-      className="sans-serif w-100 vh-100 bg-light-gray"
-      style={{ padding: SPACER }}
-    >
+    <div className="sans-serif w-100 vh-100 bg-light-gray">
       <AutoSizer onResize={onResize} style={{ outline: "none" }}>
         {({ width, height }) => (
           <Masonry
+            style={{ padding: SPACER }}
+            overscanByPixels={300}
             ref={masonry}
             cellCount={data.length}
             cellMeasurerCache={cache.current}
             cellPositioner={cellPositioner.current}
-            cellRenderer={createCellRenderer({ width })}
+            cellRenderer={createCellRenderer({
+              data,
+              width,
+              cache,
+              setHoveredId,
+              hoveredId
+            })}
             width={width}
             height={height}
           />
