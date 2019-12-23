@@ -105,8 +105,6 @@ const run = async links => {
       },
       (err, res) => {
         browser.close().then(() => {
-          console.log("closed browser");
-
           if (err) {
             reject(err);
           } else {

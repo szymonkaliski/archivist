@@ -147,9 +147,11 @@ const run = async () => {
 
   insertLinks(finalLinks);
 
-  console.log(`insterted links: ${finalLinks.length} (of ${newLinks.length})`);
+  console.log(`insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`);
 
   console.timeEnd("run");
+
+  process.exit(0); // no idea why its not exiting properly otherwise
 };
 
 module.exports = run;
