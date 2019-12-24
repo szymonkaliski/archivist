@@ -1,6 +1,7 @@
 const React = require("react");
 const ReactDOM = require("react-dom");
 const { chain, identity } = require("lodash");
+const { produce } = require("immer");
 const { shell } = require("electron");
 const { spawn } = require("child_process");
 const { useHotkeys } = require("react-hotkeys-hook");
@@ -13,7 +14,7 @@ const {
   Masonry
 } = require("react-virtualized");
 
-const { useState, useEffect, useCallback, useRef } = React;
+const { useEffect, useCallback, useRef, useReducer } = React;
 
 const SPACER = 10;
 
@@ -132,8 +133,13 @@ const createCellRenderer = ({
 
 const SearchOverlay = ({ searchText, setSearchText, setIsSearching }) => {
   return (
-    <div className="absolute">
+    <div
+      className="absolute flex pa2 bg-dark-gray white f7 code"
+      style={{ left: 0, right: 0, bottom: 0 }}
+    >
+      <div className="mr2 lh-copy gray">/</div>
       <input
+        className="w-100 bg-dark-gray white outline-0 bw0 lh-copy"
         autoFocus={true}
         value={searchText}
         onChange={e => setSearchText(e.target.value)}
@@ -148,24 +154,73 @@ const SearchOverlay = ({ searchText, setSearchText, setIsSearching }) => {
   );
 };
 
+const getFilteredData = state => {
+  if (state.searchText.length > 0) {
+    const lowerSearchText = state.searchText.toLowerCase();
+
+    return state.data.filter(d => {
+      return [d.link, d.meta.title, d.meta.note, ...(d.meta.tags || [])]
+        .filter(identity)
+        .some(t => t.includes(lowerSearchText));
+    });
+  } else {
+    return state.data;
+  }
+};
+
+const reducer = (state, action) => {
+  if (action.type === "SET_DATA") {
+    state.data = action.data;
+    state.filteredData = getFilteredData(state);
+  }
+
+  if (action.type === "SET_IS_SEARCHING") {
+    state.isSearching = !state.isSearching;
+    state.searchText = "";
+    state.filteredData = getFilteredData(state);
+  }
+
+  if (action.type === "SET_SEARCH_TEXT") {
+    state.searchText = action.searchText;
+    state.filteredData = getFilteredData(state);
+  }
+
+  if (action.type === "SET_HOVER_ID") {
+    state.hoverId = action.hoverId;
+  }
+
+  return state;
+};
+
+const immutableReducer = produce(reducer);
+
 const App = () => {
-  const [data, setData] = useState([]);
-  const [filteredData, setFilteredData] = useState([]);
-  const [hoveredId, setHoveredId] = useState(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchText, setSearchText] = useState("");
+  const [state, dispatch] = useReducer(immutableReducer, {
+    data: [],
+    filteredData: [],
+    searchText: "",
+    isSearching: false,
+    hoverId: null
+  });
+
   const masonry = useRef(null);
 
   useHotkeys(
     "/",
     () => {
-      if (!isSearching) {
-        setIsSearching(true);
-      }
-
+      dispatch({ type: "SET_IS_SEARCHING", isSearching: true });
       return false;
     },
-    [isSearching]
+    [state.isSearching]
+  );
+
+  useHotkeys(
+    "esc",
+    () => {
+      dispatch({ type: "SET_IS_SEARCHING", isSearching: false });
+      return false;
+    },
+    [state.isSearching]
   );
 
   const cache = useRef(
@@ -193,7 +248,7 @@ const App = () => {
         .reverse()
         .value();
 
-      setData(finalData);
+      dispatch({ type: "SET_DATA", data: finalData });
     });
   }, []);
 
@@ -221,44 +276,29 @@ const App = () => {
     [cache, cellPositioner, masonry]
   );
 
-  useEffect(() => {
-    if (searchText.length > 0) {
-      const lowerSearchText = searchText.toLowerCase();
-
-      setFilteredData(
-        data.filter(d => {
-          return [d.link, d.meta.title, d.meta.note, ...(d.meta.tags || [])]
-            .filter(identity)
-            .some(t => t.includes(lowerSearchText));
-        })
-      );
-    } else {
-      setFilteredData(data);
-    }
-  }, [data, searchText]);
-
   return (
     <div className="sans-serif w-100 vh-100 bg-light-gray">
       <AutoSizer
-        key={searchText + "-" + filteredData.length}
+        key={state.searchText + "-" + state.filteredData.length}
         onResize={onResize}
         style={{ outline: "none" }}
       >
         {({ width, height }) =>
-          filteredData.length > 0 ? (
+          state.filteredData.length > 0 ? (
             <Masonry
               style={{ padding: SPACER }}
               overscanByPixels={300}
               ref={masonry}
-              cellCount={filteredData.length}
+              cellCount={state.filteredData.length}
               cellMeasurerCache={cache.current}
               cellPositioner={cellPositioner.current}
               cellRenderer={createCellRenderer({
-                data: filteredData,
+                data: state.filteredData,
                 width,
                 cache,
-                setHoveredId,
-                hoveredId
+                setHoveredId: hoverId =>
+                  dispatch({ type: "SET_HOVER_ID", hoverId }),
+                hoveredId: state.hoverId
               })}
               width={width}
               height={height}
@@ -269,11 +309,15 @@ const App = () => {
         }
       </AutoSizer>
 
-      {isSearching && (
+      {state.isSearching && (
         <SearchOverlay
-          setIsSearching={setIsSearching}
-          searchText={searchText}
-          setSearchText={setSearchText}
+          searchText={state.setSearchText}
+          setIsSearching={isSearching =>
+            dispatch({ type: "SET_IS_SEARCHING", isSearching })
+          }
+          setSearchText={searchText =>
+            dispatch({ type: "SET_SEARCH_TEXT", searchText })
+          }
         />
       )}
     </div>
