@@ -1,3 +1,4 @@
+const Fuse = require("fuse.js");
 const React = require("react");
 const ReactDOM = require("react-dom");
 const { chain, identity } = require("lodash");
@@ -53,7 +54,7 @@ const HoverInfo = ({ meta, link, img }) => (
     <a
       className="f6 mb2 lh-title no-underline underline-hover white db"
       href="#"
-      onClick={() => shell.openExternal(link)}
+      onClick={() => link && shell.openExternal(link)}
     >
       {meta.title || link}
     </a>
@@ -66,7 +67,7 @@ const HoverInfo = ({ meta, link, img }) => (
 
     <div className="mt2">
       {[
-        ["src", () => shell.openExternal(link)],
+        link && ["src", () => shell.openExternal(link)],
         meta.static && ["frozen", () => shell.openItem(meta.static)],
         ["img", () => shell.openItem(img)]
       ]
@@ -121,7 +122,8 @@ const createCellRenderer = ({
             backgroundImage: `url("${datum.img}")`,
             backgroundSize: "contain",
             backgroundRepeat: "no-repeat",
-            backgroundPosition: "center"
+            backgroundPosition: "center",
+            transform: "translateZ(0)"
           }}
         >
           {hoveredId === datum.id && <HoverInfo {...datum} />}
@@ -131,38 +133,35 @@ const createCellRenderer = ({
   );
 };
 
-const SearchOverlay = ({ searchText, setSearchText, setIsSearching }) => {
-  return (
-    <div
-      className="absolute flex pa2 bg-dark-gray white f7 code"
-      style={{ left: 0, right: 0, bottom: 0 }}
-    >
-      <div className="mr2 lh-copy gray">/</div>
-      <input
-        className="w-100 bg-dark-gray white outline-0 bw0 lh-copy"
-        autoFocus={true}
-        value={searchText}
-        onChange={e => setSearchText(e.target.value)}
-        onKeyDown={e => {
-          // escape
-          if (e.keyCode === 27) {
-            setIsSearching(false);
-          }
-        }}
-      />
-    </div>
-  );
-};
+const SearchOverlay = ({ searchText, setSearchText, setIsSearching }) => (
+  <div
+    className="absolute flex pa2 bg-dark-gray white f7 code"
+    style={{ left: 0, right: 0, bottom: 0 }}
+  >
+    <div className="mr2 lh-copy gray">/</div>
+    <input
+      className="w-100 bg-dark-gray white outline-0 bw0 lh-copy"
+      autoFocus={true}
+      value={searchText}
+      onChange={e => setSearchText(e.target.value)}
+      onKeyDown={e => {
+        // escape
+        if (e.keyCode === 27) {
+          setIsSearching(false);
+        }
+      }}
+    />
+  </div>
+);
 
 const getFilteredData = state => {
   if (state.searchText.length > 0) {
-    const lowerSearchText = state.searchText.toLowerCase();
-
-    return state.data.filter(d => {
-      return [d.link, d.meta.title, d.meta.note, ...(d.meta.tags || [])]
-        .filter(identity)
-        .some(t => t.includes(lowerSearchText));
+    const fuse = new Fuse(state.data, {
+      keys: ["link", "meta.title", "meta.note", "meta.tags"],
+      shouldSort: true
     });
+
+    return fuse.search(state.searchText);
   } else {
     return state.data;
   }
@@ -175,7 +174,7 @@ const reducer = (state, action) => {
   }
 
   if (action.type === "SET_IS_SEARCHING") {
-    state.isSearching = !state.isSearching;
+    state.isSearching = action.isSearching;
     state.searchText = "";
     state.filteredData = getFilteredData(state);
   }
@@ -324,4 +323,6 @@ const App = () => {
   );
 };
 
-ReactDOM.render(<App />, document.getElementById("app"));
+const rootEl = document.getElementById("app");
+const root = ReactDOM.createRoot(rootEl);
+root.render(<App />);
