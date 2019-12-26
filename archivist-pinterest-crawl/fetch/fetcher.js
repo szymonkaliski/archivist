@@ -17,7 +17,7 @@ mkdirp(DATA_PATH);
 mkdirp(ASSETS_PATH);
 
 const download = async url => {
-  console.log("downloading", url);
+  console.log("[archivist-pinterest-crawl]", "downloading", url);
 
   const tempPath = tmp.tmpNameSync();
 
@@ -36,7 +36,10 @@ const download = async url => {
 
       sizeOf(finalPath, (err, size) => {
         if (err) {
-          console.log(`image-size error: ${err} (${finalPath})`)
+          console.log(
+            "[archivist-pinterest-crawl]",
+            `image-size error: ${err} (${finalPath})`
+          );
           resolve({ filename, width: 0, height: 0 });
         } else {
           resolve({ filename, ...size });

@@ -27,7 +27,7 @@ const screenshotPage = async (browser, link) => {
 
   // don't re-download stuff
   if (fs.existsSync(screenshotPath) && fs.existsSync(frozenPath)) {
-    console.log("already downloaded:", link);
+    console.log("[archivist-pinboard]", "already downloaded:", link);
     return {
       screenshot: path.basename(screenshotPath),
       frozen: path.basename(frozenPath)
@@ -37,11 +37,11 @@ const screenshotPage = async (browser, link) => {
   // don't wait for offline stuff
   const isOnline = await isReachable(link);
   if (!isOnline) {
-    console.log("offline:", link);
+    console.log("[archivist-pinboard]", "offline:", link);
     return null;
   }
 
-  console.log("saving:", link);
+  console.log("[archivist-pinboard]", "saving:", link);
 
   const page = await browser.newPage();
 
@@ -54,7 +54,7 @@ const screenshotPage = async (browser, link) => {
   await page.goto(link, { waitUntil: "networkidle2" });
 
   try {
-    console.log("screenshot:", link);
+    console.log("[archivist-pinboard]", "screenshot:", link);
     await page.screenshot({ path: screenshotPath });
   } catch (e) {
     await page.close();
@@ -62,7 +62,7 @@ const screenshotPage = async (browser, link) => {
   }
 
   try {
-    console.log("freeze:", link);
+    console.log("[archivist-pinboard]", "freeze:", link);
     await page.evaluate(FREEZE_DRY_SRC);
 
     const frozen = await Promise.race([
@@ -98,7 +98,11 @@ const run = async links => {
             callback(null, { ...link, paths });
           })
           .catch(() => {
-            console.log("error navigating/downloading:", link.href);
+            console.log(
+              "[archivist-pinboard]",
+              "error navigating/downloading:",
+              link.href
+            );
             // ignoring errors for now
             callback(null, null);
           });

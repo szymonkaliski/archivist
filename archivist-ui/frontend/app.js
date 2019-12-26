@@ -1,6 +1,7 @@
 const Fuse = require("fuse.js");
 const React = require("react");
 const ReactDOM = require("react-dom");
+const ndjson = require("ndjson");
 const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
@@ -19,25 +20,20 @@ const { useEffect, useCallback, useRef, useReducer } = React;
 
 const SPACER = 10;
 
-const talkToProcess = async (command, args) => {
+const executeCLI = async (command, args) => {
   return new Promise(resolve => {
-    const process = spawn(
-      "node",
-      args ? ["./process.js", command, args] : ["./process.js", command]
-    );
+    const process = spawn("archivist", args ? [command, args] : [command]);
 
-    let data = "";
+    const data = [];
 
-    process.stdout.on("data", d => {
-      data += d.toString();
-    });
+    process.stdout.pipe(ndjson.parse()).on("data", d => data.push(d));
 
     process.stderr.on("data", data => {
       console.log("[stderr]", data.toString());
     });
 
     process.on("exit", () => {
-      resolve(JSON.parse(data));
+      resolve(data);
     });
   });
 };
@@ -240,7 +236,7 @@ const App = () => {
   );
 
   useEffect(() => {
-    talkToProcess("query").then(data => {
+    executeCLI("query").then(data => {
       const finalData = chain(data)
         .map(d => ({ ...d, time: new Date(d.time) }))
         .sortBy(d => d.time)

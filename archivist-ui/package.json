@@ -19,6 +19,7 @@
     "fuse.js": "^3.4.6",
     "immer": "^5.1.0",
     "lodash": "^4.17.15",
+    "ndjson": "^1.5.0",
     "react": "0.0.0-experimental-f42431abe",
     "react-dom": "0.0.0-experimental-f42431abe",
     "react-hotkeys-hook": "^1.5.4",

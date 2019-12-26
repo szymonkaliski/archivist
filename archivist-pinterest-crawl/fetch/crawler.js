@@ -1,3 +1,4 @@
+const assert = require("assert");
 const async = require("async");
 const chrome = require("chrome-cookies-secure");
 const puppeteer = require("puppeteer");
@@ -5,11 +6,10 @@ const { chain, flatten } = require("lodash");
 
 const ROOT = "https://pinterest.com";
 
-// const CREDS = require("./.creds.json");
-// const sleep = time => new Promise(resolve => setTimeout(resolve, time));
+const sleep = time => new Promise(resolve => setTimeout(resolve, time));
 
 const crawlPin = async (browser, pinUrl) => {
-  console.log("crawling pin", pinUrl);
+  console.log("[archivist-pinterest-crawl]", "crawling pin", pinUrl);
 
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
@@ -69,7 +69,7 @@ const crawlPin = async (browser, pinUrl) => {
 };
 
 const crawlBoard = async (page, boardUrl) => {
-  console.log("crawling board", boardUrl);
+  console.log("[archivist-pinterest-crawl]", "crawling board", boardUrl);
 
   await page.goto(boardUrl, { waitUntil: "networkidle2" });
 
@@ -97,7 +97,11 @@ const crawlBoard = async (page, boardUrl) => {
 
                   allPins[url] = { url, src, alt, srcset };
                 } else {
-                  console.log("no a/img for", pin);
+                  console.log(
+                    "[archivist-pinterest-crawl]",
+                    "no a/img for",
+                    pin
+                  );
                 }
               }
             );
@@ -130,7 +134,7 @@ const crawlBoard = async (page, boardUrl) => {
 };
 
 const crawlProfile = async (page, profileUrl) => {
-  console.log("crawling profile", profileUrl);
+  console.log("[archivist-pinterest-crawl]", "crawling profile", profileUrl);
 
   await page.goto(profileUrl, { waitUntil: "networkidle2" });
 
@@ -143,18 +147,18 @@ const crawlProfile = async (page, profileUrl) => {
   return boards;
 };
 
-// const loginWithCreds = async page => {
-//   await page.goto(ROOT, { waitUntil: "networkidle2" });
-//   await page.click("[data-test-id=login-button] > button");
+const loginWithCreds = async (page, email, password) => {
+  await page.goto(ROOT, { waitUntil: "networkidle2" });
+  await page.click("[data-test-id=login-button] > button");
 
-//   await page.type("#email", CREDS.email);
-//   await sleep(2000);
-//   await page.type("#password", CREDS.password);
-//   await sleep(2000);
+  await page.type("#email", email);
+  await sleep(2000);
+  await page.type("#password", password);
+  await sleep(2000);
 
-//   await page.click(".SignupButton");
-//   await page.waitForNavigation();
-// };
+  await page.click(".SignupButton");
+  await page.waitForNavigation();
+};
 
 const loginWithCookiesFromChrome = async page =>
   new Promise(resolve => {
@@ -167,24 +171,36 @@ const loginWithCookiesFromChrome = async page =>
     });
   });
 
-const run = async () => {
+const run = async options => {
   const headless = true;
   const browser = await puppeteer.launch({ headless });
 
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
 
-  await loginWithCookiesFromChrome(page);
-  // await loginWithCreds(page); // breaks when logging in too much(?)
+  if (options.loginMethod === "cookies") {
+    await loginWithCookiesFromChrome(page);
+  } else if (options.loginMethod === "password") {
+    await loginWithCreds(page, options.username, options.password);
+  } else {
+    throw new Error("invalid login option");
+  }
 
-  const boards = await crawlProfile(page, ROOT + "/szymon_k/");
+  assert(options.profile, "requires profile option");
+
+  const boards = await crawlProfile(page, ROOT + "/" + options.profile);
 
   return new Promise(resolve => {
     async.mapSeries(
       boards,
       (board, callback) =>
         crawlBoard(page, board).then(pins => {
-          console.log("board pins:", board, pins.length);
+          console.log(
+            "[archivist-pinterest-crawl]",
+            "board pins:",
+            board,
+            pins.length
+          );
 
           callback(
             null,

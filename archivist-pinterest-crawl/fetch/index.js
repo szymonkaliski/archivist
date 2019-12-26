@@ -32,7 +32,7 @@ const processRemovedPins = async removedPins => {
         const filePath = item.filename && path.join(DATA_PATH, item.filename);
 
         if (filePath && fs.existsSync(filePath)) {
-          console.log(`unlinking ${filePath}`);
+          console.log("[archivist-pinterest-crawl]", `unlinking ${filePath}`);
           fs.unlinkSync(filePath);
         }
 
@@ -43,9 +43,7 @@ const processRemovedPins = async removedPins => {
   });
 };
 
-const run = async () => {
-  console.time("run");
-
+const run = async options => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
   db.prepare(
@@ -78,7 +76,7 @@ const run = async () => {
 
   const dbPins = db.prepare("SELECT * FROM data").all();
 
-  const crawledPins = await crawler();
+  const crawledPins = await crawler(options);
   // const crawledPins = require(CRAWLED_DATA_PATH);
 
   fs.writeFileSync(
@@ -86,7 +84,7 @@ const run = async () => {
     JSON.stringify(crawledPins, null, 2),
     "utf-8"
   );
-  console.log(`crawled data saved to ${CRAWLED_DATA_PATH}`);
+  // console.log("[archivist-pinterest-crawl]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newPins = crawledPins.filter(pin => {
     if (!pin) {
@@ -102,6 +100,7 @@ const run = async () => {
   );
 
   console.log(
+    "[archivist-pinterest-crawl]",
     `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`
   );
 
@@ -138,9 +137,10 @@ const run = async () => {
 
   insertPins(finalPins);
 
-  console.log(`inserted pins: ${finalPins.length} (of ${newPins.length})`);
-
-  console.timeEnd("run");
+  console.log(
+    "[archivist-pinterest-crawl]",
+    `inserted pins: ${finalPins.length} (of ${newPins.length})`
+  );
 };
 
 module.exports = run;

@@ -6,7 +6,7 @@ const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const FROZEN_PATH = path.join(DATA_PATH, "frozen");
 
-const query = async text => {
+const query = async (_, text) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
   let search;
 
@@ -29,7 +29,6 @@ const query = async text => {
   }
 
   return search.map(d => ({
-    // must-have
     img: path.join(ASSETS_PATH, d.screenshot),
     link: d.href,
     id: d.hash,
@@ -38,7 +37,6 @@ const query = async text => {
     width: 1920,
     height: 1080,
 
-    // TODO: editable meta
     meta: {
       title: d.description,
       note: d.extended,

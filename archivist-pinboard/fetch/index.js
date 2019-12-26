@@ -1,5 +1,3 @@
-require("dotenv").config();
-
 const async = require("async");
 const Database = require("better-sqlite3");
 const Pinboard = require("node-pinboard");
@@ -19,20 +17,6 @@ mkdirp(FROZEN_PATH);
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-links.json");
 
-// TODO: store config somewhere else than in .env
-const pinboard = new Pinboard(process.env.API_KEY);
-
-const crawlLinks = async () =>
-  new Promise((resolve, reject) => {
-    pinboard.all((err, links) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(links);
-      }
-    });
-  });
-
 const processRemovedLinks = async removedLinks => {
   return new Promise(resolve => {
     async.mapLimit(
@@ -45,12 +29,12 @@ const processRemovedLinks = async removedLinks => {
         const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
 
         if (screenshotPath && fs.existsSync(screenshotPath)) {
-          console.log(`unlinking ${screenshotPath}`);
+          console.log("[archivist-pinboard]", `unlinking ${screenshotPath}`);
           fs.unlinkSync(screenshotPath);
         }
 
         if (frozenPath && fs.existsSync(frozenPath)) {
-          console.log(`unlinking ${frozenPath}`);
+          console.log("[archivist-pinboard]", `unlinking ${frozenPath}`);
           fs.unlinkSync(frozenPath);
         }
 
@@ -61,8 +45,23 @@ const processRemovedLinks = async removedLinks => {
   });
 };
 
-const run = async () => {
-  console.time("run");
+const run = async options => {
+  if (!options.apiKey) {
+    throw new Error("apiKey not provided");
+  }
+
+  const pinboard = new Pinboard(options.apiKey);
+
+  const crawlLinks = async () =>
+    new Promise((resolve, reject) => {
+      pinboard.all((err, links) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(links);
+        }
+      });
+    });
 
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
@@ -103,7 +102,7 @@ const run = async () => {
     JSON.stringify(crawledLinks, null, 2),
     "utf-8"
   );
-  console.log(`crawled data saved to ${CRAWLED_DATA_PATH}`);
+  // console.log("[archivist-pinboard]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newLinks = crawledLinks.filter(
     link => search.get(link.hash).count === 0
@@ -114,6 +113,7 @@ const run = async () => {
   );
 
   console.log(
+    "[archivist-pinboard]",
     `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removed links: ${removedLinks.length}`
   );
 
@@ -147,11 +147,10 @@ const run = async () => {
 
   insertLinks(finalLinks);
 
-  console.log(`insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`);
-
-  console.timeEnd("run");
-
-  process.exit(0); // no idea why its not exiting properly otherwise
+  console.log(
+    "[archivist-pinboard]",
+    `insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`
+  );
 };
 
 module.exports = run;

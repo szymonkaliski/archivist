@@ -14,8 +14,6 @@ const run = async () => {
     }
   });
 
-  // mainWindow.openDevTools();
-
   await mainWindow.loadFile(path.join(__dirname, "frontend/index.html"));
 };
 
