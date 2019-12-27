@@ -38,6 +38,7 @@ const query = async (_, text) => {
     height: 1080,
 
     meta: {
+      source: "pinboard",
       title: d.description,
       note: d.extended,
       tags: d.tags.split(" "),

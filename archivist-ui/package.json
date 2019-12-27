@@ -15,6 +15,7 @@
     "@babel/core": "^7.7.7",
     "@babel/preset-react": "^7.7.4",
     "@babel/register": "^7.7.7",
+    "dateformat": "^3.0.3",
     "electron": "^7.1.6",
     "fuse.js": "^3.4.6",
     "immer": "^5.1.0",

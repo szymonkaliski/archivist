@@ -36,6 +36,7 @@ const query = async (_, text) => {
     height: d.height,
 
     meta: {
+      source: "pinterest",
       // title
       // static
       note: d.text,
