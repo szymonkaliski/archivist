@@ -15,8 +15,8 @@ Archivist is built out of three interconnected parts (each package has it's own 
 1. [`archivist-cli`](./archivist-cli) - command line tool for configuration, fetching and querying the data
 2. [`archivist-ui`](./archivist-ui) - Electron UI built on top of `archivist-cli`
 3. `archivist-*` - various crawlers, "official" ones:
-    - [`archivist-pinboard`](./archivist-pinboard) - API-based Pinboard archiving: screenshot and [freeze-dry](https://github.com/WebMemex/freeze-dry) of the original website
-    - [`archivist-pinterest-crawl`](./archivist-pinterest-crawl) - slowly crawl through Pinterest and archive pin image
+   - [`archivist-pinboard`](./archivist-pinboard) - API-based Pinboard archiving: screenshot and [freeze-dry](https://github.com/WebMemex/freeze-dry) of the original website
+   - [`archivist-pinterest-crawl`](./archivist-pinterest-crawl) - slowly crawl through Pinterest and archive pin image
 
 ## Installation
 
@@ -59,7 +59,18 @@ Example config (assuming Pinboard and Pinterest backup):
 }
 ```
 
-For detailed configuration option look at the crawler info.
+`archivist-pinterest-crawl` supports two login methods: `"cookies"` (which uses cookies from local Google Chrome installation) or `"password"` which requires plaintext username and password:
+
+```json
+"archivist-pinterest-crawl": {
+  "loginMethod": "password",
+  "username": "PINTEREST_USERNAME",
+  "password": "PINTEREST_PASSWORD",
+  "profile": "szymon_k"
+},
+```
+
+`archivist-pinboard` requires `API Token` from https://pinboard.in/settings/password to run properly.
 
 ## Usage
 
@@ -73,4 +84,3 @@ For detailed configuration option look at the crawler info.
 - [kollektor](https://github.com/vorg/kollektor) - no-ui self-hosted Pinterest clone
 - gwern on [archiving URLs](https://www.gwern.net/Archiving-URLs)
 - [freeze-dry implementation notes](https://github.com/WebMemex/freeze-dry/blob/master/src/Readme.md)
-
