@@ -1,6 +1,6 @@
 # Archivist
 
-Tool for archiving and browsing.
+Tool for archiving and exploring.
 
 Built out of a need to get out of walled gardens of Pinterest and (much less walled) Pinboard.
 
