@@ -1,30 +1,46 @@
 {
   "name": "archivist-ui",
   "version": "1.0.0",
-  "description": "",
+  "description": "ui for archivist-cli",
   "scripts": {
-    "start": "electron index.js"
+    "dev": "electron-webpack dev",
+    "compile": "electron-webpack",
+    "dist": "npm run compile && electron-builder"
+  },
+  "build": {
+    "appId": "com.szymonkaliski.archivist-ui",
+    "productName": "Archivist",
+    "mac": {
+      "icon": "./assets/Archivist.icns"
+    }
+  },
+  "electronWebpack": {
+    "title": "Archivist",
+    "whiteListedModules": [
+      "react-hotkeys-hook"
+    ]
   },
   "keywords": [],
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "devDependencies": {
-    "electron-reloader": "^0.3.0"
+    "@babel/preset-react": "^7.7.4",
+    "css-loader": "^3.4.0",
+    "electron": "^7.1.7",
+    "electron-builder": "^21.2.0",
+    "electron-webpack": "^2.7.4",
+    "webpack": "^4.41.5"
   },
   "dependencies": {
-    "@babel/core": "^7.7.7",
-    "@babel/preset-react": "^7.7.4",
-    "@babel/register": "^7.7.7",
     "dateformat": "^3.0.3",
-    "electron": "^7.1.6",
     "fuse.js": "^3.4.6",
     "immer": "^5.1.0",
     "lodash": "^4.17.15",
-    "ndjson": "^1.5.0",
-    "react": "0.0.0-experimental-f42431abe",
-    "react-dom": "0.0.0-experimental-f42431abe",
+    "react": "16.12.0",
+    "react-dom": "16.12.0",
     "react-hotkeys-hook": "^1.5.4",
     "react-virtualized": "^9.21.2",
+    "source-map-support": "^0.5.16",
     "tachyons": "^4.11.1"
   }
 }

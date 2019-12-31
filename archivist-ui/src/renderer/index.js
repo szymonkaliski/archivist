@@ -2,7 +2,7 @@ const Fuse = require("fuse.js");
 const React = require("react");
 const ReactDOM = require("react-dom");
 const dateFormat = require("dateformat");
-const ndjson = require("ndjson");
+const fs = require("fs");
 const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
@@ -17,25 +17,41 @@ const {
   Masonry
 } = require("react-virtualized");
 
+require("tachyons/src/tachyons.css");
+require("react-virtualized/styles.css");
+
 const { useEffect, useCallback, useRef, useReducer } = React;
 
 const SPACER = 10;
-const HAS_ARCHIVIST = !spawnSync("archivist").error;
+const SHELL = process.env.SHELL || "bash";
+
+// running archivist in an interactive shell to support stuff like nvm
+const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
 
 const executeCLI = async (command, args) => {
   return new Promise(resolve => {
-    const process = spawn("archivist", args ? [command, args] : [command]);
+    // running archivist in an interactive shell to support stuff like nvm
+    const cmdArgs = [
+      "-i",
+      "-c",
+      ["archivist", ...(args ? [command, args] : [command]), "--json"].join(" ")
+    ];
 
-    const data = [];
+    const process = spawn(SHELL, cmdArgs);
+    let result = "";
 
-    process.stdout.pipe(ndjson.parse()).on("data", d => data.push(d));
+    process.stdout.on("data", data => {
+      result += data.toString();
+    });
 
     process.stderr.on("data", data => {
       console.log("[stderr]", data.toString());
     });
 
     process.on("exit", () => {
-      resolve(data);
+      // sometimes shell leaves some control sequences...
+      const clean = result.replace(/^.*\[/, "[");
+      resolve(JSON.parse(clean));
     });
   });
 };
@@ -116,6 +132,9 @@ const createCellRenderer = ({
 
   const ratio = datum.height / datum.width;
 
+  // TODO: cache?
+  const img = fs.readFileSync(datum.img).toString("base64");
+
   return (
     <CellMeasurer cache={cache.current} index={index} key={key} parent={parent}>
       <div
@@ -133,7 +152,7 @@ const createCellRenderer = ({
           style={{
             height: ratio * columnWidth,
             width: columnWidth,
-            backgroundImage: `url("${datum.img}")`,
+            backgroundImage: `url(data:image/png;base64,${img})`,
             backgroundSize: "contain",
             backgroundRepeat: "no-repeat",
             backgroundPosition: "center",
@@ -381,5 +400,4 @@ const App = () => {
 };
 
 const rootEl = document.getElementById("app");
-const root = ReactDOM.createRoot(rootEl);
-root.render(<App />);
+ReactDOM.render(<App />, rootEl);
