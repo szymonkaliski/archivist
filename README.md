@@ -24,10 +24,10 @@ Archivist is built out of three interconnected parts (each package has it's own 
 2. to archive pinboard: `npm install -g archivist-pinboard`
 3. to archive pinterest: `npm install -g archivist-pinterest-crawl`
 
-`archivist-ui` is not on npm (it should probably be a downloadable `dmg`/`exe`, but I didn't get around to it), so to run it:
+`archivist-ui` is not on npm (it should probably be a downloadable `dmg`, but I didn't get around to it), so to generate the `.app` and put it in `/Applications/` yourself:
 
 1. clone this repo
-2. `cd archivist-ui && npm install && npm start`
+2. `cd archivist-ui && ./scripts/install.sh`
 
 ## Configure
 
@@ -84,3 +84,4 @@ Example config (assuming Pinboard and Pinterest backup):
 - [kollektor](https://github.com/vorg/kollektor) - no-ui self-hosted Pinterest clone
 - gwern on [archiving URLs](https://www.gwern.net/Archiving-URLs)
 - [freeze-dry implementation notes](https://github.com/WebMemex/freeze-dry/blob/master/src/Readme.md)
+
