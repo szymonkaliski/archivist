@@ -2,7 +2,6 @@ const Fuse = require("fuse.js");
 const React = require("react");
 const ReactDOM = require("react-dom");
 const dateFormat = require("dateformat");
-const fs = require("fs");
 const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
@@ -124,16 +123,9 @@ const createCellRenderer = ({
   setSearchText
 }) => ({ index, key, parent, style }) => {
   const columnWidth = calcColumnWidth({ width });
-  const datum = data[index];
-
-  if (!datum) {
-    return null;
-  }
-
+  const datum = data[index] || {};
   const ratio = datum.height / datum.width;
-
-  // TODO: cache?
-  const img = fs.readFileSync(datum.img).toString("base64");
+  const imgPath = datum.img;
 
   return (
     <CellMeasurer cache={cache.current} index={index} key={key} parent={parent}>
@@ -152,7 +144,7 @@ const createCellRenderer = ({
           style={{
             height: ratio * columnWidth,
             width: columnWidth,
-            backgroundImage: `url(data:image/png;base64,${img})`,
+            backgroundImage: `url("file:${imgPath}")`,
             backgroundSize: "contain",
             backgroundRepeat: "no-repeat",
             backgroundPosition: "center",

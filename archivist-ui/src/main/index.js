@@ -9,6 +9,7 @@ let mainWindow;
 const createWindow = () => {
   const window = new BrowserWindow({
     webPreferences: {
+      webSecurity: false, // otherwise we can't load images using file:/// url
       nodeIntegration: true
     }
   });
@@ -28,13 +29,6 @@ const createWindow = () => {
 
   window.on("closed", () => {
     mainWindow = null;
-  });
-
-  window.webContents.on("devtools-opened", () => {
-    window.focus();
-    setImmediate(() => {
-      window.focus();
-    });
   });
 
   return window;
