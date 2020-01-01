@@ -1,4 +1,4 @@
 node_modules/
-assets/freeze-dry-browserified.js
+fetch/assets/freeze-dry-browserified.js
 .DS_Store
 .env
