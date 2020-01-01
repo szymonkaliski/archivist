@@ -17,6 +17,7 @@
   "electronWebpack": {
     "title": "Archivist",
     "whiteListedModules": [
+      "use-debounce",
       "react-hotkeys-hook"
     ]
   },
@@ -41,6 +42,7 @@
     "react-hotkeys-hook": "^1.5.4",
     "react-virtualized": "^9.21.2",
     "source-map-support": "^0.5.16",
-    "tachyons": "^4.11.1"
+    "tachyons": "^4.11.1",
+    "use-debounce": "^3.3.0"
   }
 }

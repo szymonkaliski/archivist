@@ -1,4 +1,3 @@
-const Fuse = require("fuse.js");
 const React = require("react");
 const ReactDOM = require("react-dom");
 const dateFormat = require("dateformat");
@@ -6,6 +5,7 @@ const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
 const { spawn, spawnSync } = require("child_process");
+const { useDebounce } = require("use-debounce");
 const { useHotkeys } = require("react-hotkeys-hook");
 
 const {
@@ -28,12 +28,12 @@ const SHELL = process.env.SHELL || "bash";
 const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
 
 const executeCLI = async (command, args) => {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     // running archivist in an interactive shell to support stuff like nvm
     const cmdArgs = [
       "-i",
       "-c",
-      ["archivist", ...(args ? [command, args] : [command]), "--json"].join(" ")
+      ["archivist", command, args, "--json"].filter(identity).join(" ")
     ];
 
     const process = spawn(SHELL, cmdArgs);
@@ -44,11 +44,11 @@ const executeCLI = async (command, args) => {
     });
 
     process.stderr.on("data", data => {
-      console.log("[stderr]", data.toString());
+      reject(data);
     });
 
     process.on("exit", () => {
-      // sometimes shell leaves some control sequences...
+      // sometimes shell leaves control sequences...
       const clean = result.replace(/^.*\[/, "[");
       resolve(JSON.parse(clean));
     });
@@ -76,13 +76,14 @@ const HoverInfo = ({ meta, link, img, time, setSearchText }) => (
 
     {meta.tags && (
       <div>
-        {meta.hashtags.map(hashtag => (
+        {meta.tags.map(tag => (
           <a
+            key={tag}
             className="no-underline underline-hover light-gray mr1"
             href="#"
-            onClick={() => setSearchText(hashtag)}
+            onClick={() => setSearchText(tag)}
           >
-            {hashtag}
+            {tag}
           </a>
         ))}
       </div>
@@ -132,12 +133,8 @@ const createCellRenderer = ({
       <div
         style={style}
         className="h-100"
-        onMouseEnter={() => {
-          setHoveredId(datum.id);
-        }}
-        onMouseLeave={() => {
-          setHoveredId(null);
-        }}
+        onMouseEnter={() => setHoveredId(datum.id)}
+        onMouseLeave={() => setHoveredId(null)}
       >
         <div
           className="h-100 relative"
@@ -184,42 +181,19 @@ const SearchOverlay = React.forwardRef(
   )
 );
 
-const getFilteredData = state => {
-  if (state.searchText.length > 0) {
-    const fuse = new Fuse(state.data, {
-      keys: [
-        "meta.title",
-        "meta.note",
-        "meta.hashtags",
-        { name: "link", weight: 0.1 },
-        { name: "meta.source", weight: 0.1 }
-      ],
-      shouldSort: false,
-      threshold: 0.3
-    });
-
-    return fuse.search(state.searchText);
-  } else {
-    return state.data;
-  }
-};
-
 const reducer = (state, action) => {
   if (action.type === "SET_DATA") {
     state.data = action.data;
-    state.filteredData = getFilteredData(state);
   }
 
   if (action.type === "SET_IS_SEARCHING") {
     state.isSearching = action.isSearching;
     state.searchText = "";
-    state.filteredData = getFilteredData(state);
   }
 
   if (action.type === "SET_SEARCH_TEXT") {
     state.isSearching = true;
     state.searchText = action.searchText;
-    state.filteredData = getFilteredData(state);
   }
 
   if (action.type === "SET_HOVER_ID") {
@@ -234,11 +208,12 @@ const immutableReducer = produce(reducer);
 const App = () => {
   const [state, dispatch] = useReducer(immutableReducer, {
     data: [],
-    filteredData: [],
     searchText: "",
     isSearching: false,
     hoverId: null
   });
+
+  const [debouncedSearchText] = useDebounce(state.searchText, 30);
 
   const searchInputRef = useRef(null);
   const masonry = useRef(null);
@@ -287,23 +262,23 @@ const App = () => {
   );
 
   useEffect(() => {
-    executeCLI("query").then(data => {
-      const finalData = chain(data)
-        .map(d => ({
-          ...d,
-          time: new Date(d.time),
-          meta: {
-            ...d.meta,
-            hashtags: (d.meta.tags || []).map(tag => `#${tag}`) // so searching by #tag is possible
-          }
-        }))
-        .sortBy(d => d.time)
-        .reverse()
-        .value();
+    executeCLI("query", debouncedSearchText)
+      .then(data => {
+        const finalData = chain(data)
+          .map(d => ({
+            ...d,
+            time: new Date(d.time)
+          }))
+          .sortBy(d => d.time)
+          .reverse()
+          .value();
 
-      dispatch({ type: "SET_DATA", data: finalData });
-    });
-  }, []);
+        dispatch({ type: "SET_DATA", data: finalData });
+      })
+      .catch(e => {
+        console.error("archivist-cli error", e);
+      });
+  }, [debouncedSearchText]);
 
   const onResize = useCallback(
     ({ width }) => {
@@ -340,23 +315,23 @@ const App = () => {
   return (
     <div className="sans-serif w-100 vh-100 bg-light-gray">
       <AutoSizer
-        key={state.searchText + "-" + state.filteredData.length}
+        key={debouncedSearchText + "-" + state.data.length}
         onResize={onResize}
         style={{ outline: "none" }}
       >
         {({ width, height }) =>
-          state.filteredData.length > 0 ? (
+          state.data.length > 0 ? (
             <Masonry
               style={{
                 padding: SPACER / 2
               }}
               overscanByPixels={300}
               ref={masonry}
-              cellCount={state.filteredData.length}
+              cellCount={state.data.length}
               cellMeasurerCache={cache.current}
               cellPositioner={cellPositioner.current}
               cellRenderer={createCellRenderer({
-                data: state.filteredData,
+                data: state.data,
                 width,
                 cache,
                 setHoveredId: hoverId =>
