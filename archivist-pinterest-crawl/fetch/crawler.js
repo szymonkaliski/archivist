@@ -171,7 +171,7 @@ const loginWithCookiesFromChrome = async page =>
     });
   });
 
-const run = async options => {
+const createBrowser = async options => {
   const headless = true;
   const browser = await puppeteer.launch({ headless });
 
@@ -187,6 +187,12 @@ const run = async options => {
   }
 
   assert(options.profile, "requires profile option");
+
+  return { browser, page };
+};
+
+const crawlBoards = async options => {
+  const { browser, page } = await createBrowser(options);
 
   const boards = await crawlProfile(page, ROOT + "/" + options.profile);
 
@@ -215,23 +221,33 @@ const run = async options => {
           );
         }),
       (err, res) => {
-        async.mapLimit(
-          flatten(res),
-          4,
-          (pin, callback) => {
-            crawlPin(browser, pin.url).then(({ link, date }) => {
-              callback(null, { ...pin, link, createdAt: date });
-            });
-          },
-          (err, res) => {
-            browser.close().then(() => {
-              resolve(res);
-            });
-          }
-        );
+        browser.close().then(() => {
+          resolve(flatten(res));
+        });
       }
     );
   });
 };
 
-module.exports = run;
+const crawlPinMetadata = async (options, pins) => {
+  const { browser } = await createBrowser(options);
+
+  return new Promise(resolve => {
+    async.mapLimit(
+      pins,
+      4,
+      (pin, callback) => {
+        crawlPin(browser, pin.url).then(({ link, date }) => {
+          callback(null, { ...pin, link, createdAt: date });
+        });
+      },
+      (err, res) => {
+        browser.close().then(() => {
+          resolve(res);
+        });
+      }
+    );
+  });
+};
+
+module.exports = { crawlBoards, crawlPinMetadata };

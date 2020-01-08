@@ -7,7 +7,7 @@ const mkdirp = require("mkdirp");
 const path = require("path");
 const { chain } = require("lodash");
 
-const crawler = require("./crawler");
+const { crawlBoards, crawlPinMetadata } = require("./crawler");
 const fetcher = require("./fetcher");
 
 const DATA_PATH = envPaths("archivist-pinterest").data;
@@ -76,8 +76,13 @@ const run = async options => {
 
   const dbPins = db.prepare("SELECT * FROM data").all();
 
-  const crawledPins = await crawler(options);
+  const crawledPins = await crawlBoards(options);
   // const crawledPins = require(CRAWLED_DATA_PATH);
+
+  if (crawledPins.length === 0) {
+    console.log("[archivist-pinterest-crawl]", "0 crawled pins, exiting");
+    return;
+  }
 
   fs.writeFileSync(
     CRAWLED_DATA_PATH,
@@ -112,7 +117,9 @@ const run = async options => {
 
   removePins(pinidsToRemove);
 
-  const fetchedPins = await fetcher(newPins);
+  const newPinsWithMetadata = await crawlPinMetadata(options, newPins);
+
+  const fetchedPins = await fetcher(newPinsWithMetadata);
 
   const crawldate = dateFormat(new Date(), "isoDateTime");
 
