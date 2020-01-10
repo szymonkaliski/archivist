@@ -1,11 +1,12 @@
 const async = require("async");
 const envPaths = require("env-paths");
 const fs = require("fs");
+const isReachable = require("is-reachable");
 const md5 = require("md5");
 const mkdirp = require("mkdirp");
 const path = require("path");
 const puppeteer = require("puppeteer");
-const isReachable = require("is-reachable");
+const wayback = require("wayback-machine");
 
 const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
@@ -21,9 +22,11 @@ const FREEZE_DRY_PATH = path.join(
 
 const FREEZE_DRY_SRC = fs.readFileSync(FREEZE_DRY_PATH, "utf-8");
 
-const screenshotPage = async (browser, link) => {
-  const screenshotPath = path.join(ASSETS_PATH, `${md5(link)}.png`);
-  const frozenPath = path.join(FROZEN_PATH, `${md5(link)}.html`);
+const savePageInternal = async (browser, link, url) => {
+  const screenshotPath = path.join(ASSETS_PATH, `${md5(url)}.png`);
+  const frozenPath = path.join(FROZEN_PATH, `${md5(url)}.html`);
+
+  let didScreenshot, didFreeze, didOpen;
 
   // don't re-download stuff
   if (fs.existsSync(screenshotPath) && fs.existsSync(frozenPath)) {
@@ -34,31 +37,45 @@ const screenshotPage = async (browser, link) => {
     };
   }
 
-  // don't wait for offline stuff
-  const isOnline = await isReachable(link);
-  if (!isOnline) {
-    console.log("[archivist-pinboard]", "offline:", link);
-    return null;
-  }
-
   console.log("[archivist-pinboard]", "saving:", link);
 
   const page = await browser.newPage();
 
   page.on("error", async () => {
     await page.close();
+
     return null;
   });
 
   await page.setViewport({ width: 1920, height: 1080, deviceScaleRatio: 2 });
-  await page.goto(link, { waitUntil: "networkidle2" });
+
+  try {
+    await page.goto(link, { waitUntil: "networkidle2" });
+
+    didOpen = true;
+  } catch (e) {
+    console.log(
+      "[archivist-pinboard]",
+      "error navigating:",
+      link,
+      e.toString()
+    );
+
+    didOpen = false;
+  }
+
+  if (!didOpen) {
+    await page.close();
+    return null;
+  }
 
   try {
     console.log("[archivist-pinboard]", "screenshot:", link);
     await page.screenshot({ path: screenshotPath });
+
+    didScreenshot = true;
   } catch (e) {
-    await page.close();
-    return null;
+    didScreenshot = false;
   }
 
   try {
@@ -71,37 +88,78 @@ const screenshotPage = async (browser, link) => {
     ]);
 
     fs.writeFileSync(frozenPath, frozen, "utf-8");
+
+    didFreeze = true;
   } catch (e) {
-    await page.close();
-    return null;
+    didFreeze = false;
   }
 
   await page.close();
 
   return {
-    screenshot: path.basename(screenshotPath),
-    frozen: path.basename(frozenPath)
+    screenshot:
+      didScreenshot === true ? path.basename(screenshotPath) : undefined,
+    frozen: didFreeze === true ? path.basename(frozenPath) : undefined
   };
+};
+
+const savePage = async (browser, link) => {
+  const isOnline = await isReachable(link);
+
+  if (!isOnline) {
+    console.log("[archivist-pinboard]", "offline, trying wayback for:", link);
+
+    return new Promise(resolve => {
+      wayback.getClosest(link, (err, closest) => {
+        const isError = !!err;
+        const isClosest = closest && !!closest.available && !!closest.url;
+
+        if (isError || !isClosest) {
+          console.log(
+            "[archivist-pinboard]",
+            "couldn't find wayback for:",
+            link
+          );
+          resolve(null);
+        } else {
+          console.log(
+            "[archivist-pinboard]",
+            "found wayback for",
+            link,
+            "->",
+            closest.url
+          );
+
+          savePageInternal(browser, closest.url, link).then(paths =>
+            resolve(paths)
+          );
+        }
+      });
+    });
+  }
+
+  return await savePageInternal(browser, link, link);
 };
 
 const run = async links => {
   const headless = true;
-  const browser = await puppeteer.launch({ headless });
+  const browser = await puppeteer.launch({ headless, ignoreHTTPSErrors: true });
 
   return new Promise((resolve, reject) => {
     async.mapLimit(
       links,
-      20,
+      10,
       (link, callback) => {
-        screenshotPage(browser, link.href)
+        savePage(browser, link.href)
           .then(paths => {
             callback(null, { ...link, paths });
           })
-          .catch(() => {
+          .catch(e => {
             console.log(
               "[archivist-pinboard]",
-              "error navigating/downloading:",
-              link.href
+              "uncatched error",
+              link.href,
+              e.toString()
             );
             // ignoring errors for now
             callback(null, null);

@@ -42,7 +42,7 @@ const query = async (_, text) => {
       title: d.description,
       note: d.extended,
       tags: d.tags.split(" "),
-      static: path.join(FROZEN_PATH, d.frozen)
+      static: d.frozen ? path.join(FROZEN_PATH, d.frozen) : undefined
     }
   }));
 };
