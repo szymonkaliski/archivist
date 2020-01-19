@@ -1,6 +1,7 @@
 const React = require("react");
 const ReactDOM = require("react-dom");
 const dateFormat = require("dateformat");
+const strip = require("strip");
 const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
@@ -72,7 +73,7 @@ const HoverInfo = ({ meta, link, img, time, setSearchText }) => (
       {meta.title || link}
     </a>
 
-    {meta.note && <div className="mb2 lh-copy">{meta.note}</div>}
+    {meta.note && <div className="mb2 lh-copy">{strip(meta.note)}</div>}
 
     {meta.tags && (
       <div>
