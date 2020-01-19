@@ -49,8 +49,9 @@ const run = async options => {
   db.prepare(
     `
     CREATE TABLE IF NOT EXISTS data (
-    board TEXT,
+      board TEXT,
       filename TEXT,
+      title TEXT,
       text TEXT,
       link TEXT,
       pinurl TEXT,
@@ -68,8 +69,8 @@ const run = async options => {
   );
 
   const insert = db.prepare(
-    `INSERT OR REPLACE INTO data (board,   filename,  text,  link,  pinurl,  pinid,  crawldate,  createdat,  width,  height)
-     VALUES                      (:board, :filename, :text, :link, :pinurl, :pinid, :crawldate, :createdat, :width, :height)`
+    `INSERT OR REPLACE INTO data (board,   filename,  title,  text,  link,  pinurl,  pinid,  crawldate,  createdat,  width,  height)
+     VALUES                      (:board, :filename, :title, :text, :link, :pinurl, :pinid, :crawldate, :createdat, :width, :height)`
   );
 
   const remove = db.prepare("DELETE FROM data WHERE pinid = ?");
@@ -126,7 +127,8 @@ const run = async options => {
   const finalPins = fetchedPins.map(pin => ({
     board: pin.board,
     filename: pin.filename,
-    text: pin.alt || "",
+    title: pin.title,
+    text: pin.alt,
     link: pin.link,
     pinurl: pin.url,
     pinid: makePinId(pin),

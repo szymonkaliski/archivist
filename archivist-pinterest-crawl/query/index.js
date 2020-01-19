@@ -18,6 +18,7 @@ const query = async (_, text) => {
         WHERE
           board LIKE :query OR
           text LIKE :query OR
+          title LIKE :query OR
           link LIKE :query
         `
       )
@@ -37,8 +38,7 @@ const query = async (_, text) => {
 
     meta: {
       source: "pinterest",
-      // title
-      // static
+      title: d.title,
       note: d.text,
       tags: [d.board]
     }

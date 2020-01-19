@@ -16,29 +16,19 @@ const crawlPin = async (browser, pinUrl) => {
 
   await page.goto(pinUrl, { waitUntil: "networkidle2" });
 
-  const link = await page.evaluate(() => {
+  const { link, title, date } = await page.evaluate(() => {
     const getLink = () => {
       const link = document.querySelector(".linkModuleActionButton");
       return link ? link.href : undefined;
     };
 
-    return new Promise(resolve => {
-      const link = getLink();
+    const getTitle = () => {
+      const titleCard = document.querySelector(".CloseupTitleCard");
+      return titleCard ? titleCard.textContent : undefined;
+    };
 
-      if (link) {
-        resolve(link);
-      } else {
-        // try once more and give up
-        setTimeout(() => {
-          resolve(getLink());
-        }, 500);
-      }
-    });
-  });
-
-  const date = await page.evaluate(() => {
     const getDate = () => {
-      let date;
+      let date = undefined;
 
       try {
         date = Object.values(
@@ -49,23 +39,29 @@ const crawlPin = async (browser, pinUrl) => {
       return date;
     };
 
-    return new Promise(resolve => {
-      const date = getDate();
+    const getData = () => ({
+      link: getLink(),
+      title: getTitle(),
+      date: getDate()
+    });
 
-      if (date) {
-        resolve(date);
+    return new Promise(resolve => {
+      const data = getData();
+
+      if (data.link || data.title || data.date) {
+        resolve(data);
       } else {
         // try once more and give up
         setTimeout(() => {
-          resolve(getDate());
-        }, 500);
+          resolve(getData());
+        }, 1000);
       }
     });
   });
 
   await page.close();
 
-  return { link, date };
+  return { link, title, date };
 };
 
 const crawlBoard = async (page, boardUrl) => {
@@ -237,8 +233,8 @@ const crawlPinMetadata = async (options, pins) => {
       pins,
       4,
       (pin, callback) => {
-        crawlPin(browser, pin.url).then(({ link, date }) => {
-          callback(null, { ...pin, link, createdAt: date });
+        crawlPin(browser, pin.url).then(({ link, title, date }) => {
+          callback(null, { ...pin, title, link, createdAt: date });
         });
       },
       (err, res) => {

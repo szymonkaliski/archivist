@@ -40,6 +40,7 @@ const download = async url => {
             "[archivist-pinterest-crawl]",
             `image-size error: ${err} (${finalPath})`
           );
+
           resolve({ filename, width: 0, height: 0 });
         } else {
           resolve({ filename, ...size });
