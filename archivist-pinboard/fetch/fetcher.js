@@ -50,7 +50,8 @@ const savePageInternal = async (browser, link, url) => {
   await page.setViewport({ width: 1920, height: 1080, deviceScaleRatio: 2 });
 
   try {
-    await page.goto(link, { waitUntil: "networkidle2" });
+    // await page.goto(link, { waitUntil: "networkidle2" });
+    await page.goto(link, { waitUntil: "load" });
 
     didOpen = true;
   } catch (e) {

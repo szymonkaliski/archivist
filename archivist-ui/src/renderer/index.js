@@ -14,7 +14,7 @@ const {
   CellMeasurer,
   CellMeasurerCache,
   createMasonryCellPositioner,
-  Masonry
+  Masonry,
 } = require("react-virtualized");
 
 require("tachyons/src/tachyons.css");
@@ -34,18 +34,19 @@ const executeCLI = async (command, args) => {
     const cmdArgs = [
       "-i",
       "-c",
-      ["archivist", command, args, "--json"].filter(identity).join(" ")
+      ["archivist", command, args, "--json"].filter(identity).join(" "),
     ];
 
     const process = spawn(SHELL, cmdArgs);
     let result = "";
 
-    process.stdout.on("data", data => {
+    process.stdout.on("data", (data) => {
       result += data.toString();
     });
 
-    process.stderr.on("data", data => {
-      reject(data);
+    process.stderr.on("data", (data) => {
+      // we can have stderr AND data at the same time, this shouldn't reject the results completely...
+      // reject(data);
     });
 
     process.on("exit", () => {
@@ -77,7 +78,7 @@ const HoverInfo = ({ meta, link, img, time, setSearchText }) => (
 
     {meta.tags && (
       <div>
-        {meta.tags.map(tag => (
+        {meta.tags.map((tag) => (
           <a
             key={tag}
             className="no-underline underline-hover light-gray mr1"
@@ -95,7 +96,7 @@ const HoverInfo = ({ meta, link, img, time, setSearchText }) => (
         {[
           link && ["src", () => shell.openExternal(link)],
           meta.static && ["frozen", () => shell.openItem(meta.static)],
-          ["img", () => shell.openItem(img)]
+          ["img", () => shell.openItem(img)],
         ]
           .filter(identity)
           .map(([text, callback]) => (
@@ -122,7 +123,7 @@ const createCellRenderer = ({
   cache,
   setHoveredId,
   hoveredId,
-  setSearchText
+  setSearchText,
 }) => ({ index, key, parent, style }) => {
   const columnWidth = calcColumnWidth({ width });
   const datum = data[index] || {};
@@ -146,7 +147,7 @@ const createCellRenderer = ({
             backgroundSize: "contain",
             backgroundRepeat: "no-repeat",
             backgroundPosition: "center",
-            transform: "translateZ(0)"
+            transform: "translateZ(0)",
           }}
         >
           {hoveredId === datum.id && (
@@ -170,8 +171,8 @@ const SearchOverlay = React.forwardRef(
         className="w-100 bg-dark-gray white outline-0 bw0 lh-copy"
         autoFocus={true}
         value={searchText}
-        onChange={e => setSearchText(e.target.value)}
-        onKeyDown={e => {
+        onChange={(e) => setSearchText(e.target.value)}
+        onKeyDown={(e) => {
           // escape
           if (e.keyCode === 27) {
             setIsSearching(false);
@@ -211,7 +212,7 @@ const App = () => {
     data: [],
     searchText: "",
     isSearching: false,
-    hoverId: null
+    hoverId: null,
   });
 
   const [debouncedSearchText] = useDebounce(state.searchText, 30);
@@ -249,7 +250,7 @@ const App = () => {
     new CellMeasurerCache({
       defaultHeight: 400,
       defaultWidth: 400,
-      fixedWidth: true
+      fixedWidth: true,
     })
   );
 
@@ -258,26 +259,26 @@ const App = () => {
       cellMeasurerCache: cache.current,
       columnCount: 3,
       columnWidth: 400,
-      spacer: SPACER
+      spacer: SPACER,
     })
   );
 
   useEffect(() => {
     executeCLI("query", debouncedSearchText)
-      .then(data => {
+      .then((data) => {
         const finalData = chain(data)
-          .map(d => ({
+          .map((d) => ({
             ...d,
-            time: new Date(d.time)
+            time: new Date(d.time),
           }))
-          .sortBy(d => d.time)
+          .sortBy((d) => d.time)
           .reverse()
           .value();
 
         dispatch({ type: "SET_DATA", data: finalData });
       })
-      .catch(e => {
-        console.error("archivist-cli error", e);
+      .catch((e) => {
+        console.error("archivist-cli error", e.toString());
       });
   }, [debouncedSearchText]);
 
@@ -294,7 +295,7 @@ const App = () => {
         cellPositioner.current.reset({
           columnCount,
           columnWidth,
-          spacer: SPACER
+          spacer: SPACER,
         });
       }
 
@@ -324,7 +325,7 @@ const App = () => {
           state.data.length > 0 ? (
             <Masonry
               style={{
-                padding: SPACER / 2
+                padding: SPACER / 2,
               }}
               overscanByPixels={300}
               ref={masonry}
@@ -335,12 +336,12 @@ const App = () => {
                 data: state.data,
                 width,
                 cache,
-                setHoveredId: hoverId =>
+                setHoveredId: (hoverId) =>
                   dispatch({ type: "SET_HOVER_ID", hoverId }),
                 hoveredId: state.hoverId,
-                setSearchText: searchText => {
+                setSearchText: (searchText) => {
                   dispatch({ type: "SET_SEARCH_TEXT", searchText });
-                }
+                },
               })}
               width={width}
               height={height}
@@ -355,10 +356,10 @@ const App = () => {
         <SearchOverlay
           ref={searchInputRef}
           searchText={state.searchText}
-          setIsSearching={isSearching =>
+          setIsSearching={(isSearching) =>
             dispatch({ type: "SET_IS_SEARCHING", isSearching })
           }
-          setSearchText={searchText =>
+          setSearchText={(searchText) =>
             dispatch({ type: "SET_SEARCH_TEXT", searchText })
           }
         />

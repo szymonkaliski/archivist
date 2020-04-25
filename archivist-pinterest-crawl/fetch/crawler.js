@@ -69,6 +69,8 @@ const crawlBoard = async (page, boardUrl) => {
 
   await page.goto(boardUrl, { waitUntil: "networkidle2" });
 
+  await sleep(2000); // boards load slowly, but "networkidle0" causes timeout
+
   // scroll down to bottom (hopefully)
   const scrollResult = await page.evaluate(
     () =>
@@ -77,7 +79,7 @@ const crawlBoard = async (page, boardUrl) => {
         const allPins = {};
 
         const scrollDown = () => {
-          window.scrollTo(0, window.scrollY + 100);
+          window.scrollTo(0, window.scrollY + 10);
 
           setTimeout(() => {
             Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach(
@@ -108,7 +110,7 @@ const crawlBoard = async (page, boardUrl) => {
               lastScrollPosition = window.scrollY;
               scrollDown();
             }
-          }, 100);
+          }, 10);
         };
 
         scrollDown();
@@ -145,7 +147,7 @@ const crawlProfile = async (page, profileUrl) => {
 
 const loginWithCreds = async (page, email, password) => {
   await page.goto(ROOT, { waitUntil: "networkidle2" });
-  await page.click("[data-test-id=login-button] > button");
+  await page.click("[data-test-id=simple-login-button] > button");
 
   await page.type("#email", email);
   await sleep(2000);
@@ -190,7 +192,7 @@ const createBrowser = async options => {
 const crawlBoards = async options => {
   const { browser, page } = await createBrowser(options);
 
-  const boards = await crawlProfile(page, ROOT + "/" + options.profile);
+  const boards = await crawlProfile(page, ROOT + "/" + options.profile + "/boards");
 
   return new Promise(resolve => {
     async.mapSeries(
