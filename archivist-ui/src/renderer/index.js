@@ -264,7 +264,7 @@ const App = () => {
   );
 
   useEffect(() => {
-    executeCLI("query", debouncedSearchText)
+    executeCLI("search", debouncedSearchText)
       .then((data) => {
         const finalData = chain(data)
           .map((d) => ({
