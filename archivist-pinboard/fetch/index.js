@@ -5,6 +5,7 @@ const envPaths = require("env-paths");
 const fs = require("fs");
 const mkdirp = require("mkdirp");
 const path = require("path");
+const { isString } = require("lodash");
 
 const fetcher = require("./fetcher");
 
@@ -17,8 +18,8 @@ mkdirp(FROZEN_PATH);
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-links.json");
 
-const processRemovedLinks = async removedLinks => {
-  return new Promise(resolve => {
+const processRemovedLinks = async (removedLinks) => {
+  return new Promise((resolve) => {
     async.mapLimit(
       removedLinks,
       10,
@@ -45,7 +46,7 @@ const processRemovedLinks = async removedLinks => {
   });
 };
 
-const run = async options => {
+const run = async (options) => {
   if (!options.apiKey) {
     throw new Error("apiKey not provided");
   }
@@ -94,7 +95,20 @@ const run = async options => {
 
   const dbLinks = db.prepare("SELECT * FROM data").all();
 
-  const crawledLinks = await crawlLinks();
+  let crawledLinks = await crawlLinks();
+
+  // not sure what's going on in here really
+  if (isString(crawledLinks)) {
+    try {
+      crawledLinks = JSON.parse(crawledLinks.slice(1));
+    } catch (e) {}
+  }
+
+  if (isString(crawledLinks)) {
+    console.log("[archivist-pinboard] unrecoverable issue with crawled links");
+    return;
+  }
+
   // const crawledLinks = require(CRAWLED_DATA_PATH);
 
   fs.writeFileSync(
@@ -105,11 +119,11 @@ const run = async options => {
   // console.log("[archivist-pinboard]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newLinks = crawledLinks.filter(
-    link => search.get(link.hash).count === 0
+    (link) => search.get(link.hash).count === 0
   );
 
   const removedLinks = dbLinks.filter(
-    ({ hash }) => !crawledLinks.find(l => l.hash === hash)
+    ({ hash }) => !crawledLinks.find((l) => l.hash === hash)
   );
 
   console.log(
@@ -119,8 +133,8 @@ const run = async options => {
 
   const hashesToRemove = await processRemovedLinks(removedLinks);
 
-  const removeLinks = db.transaction(hashes => {
-    hashes.forEach(hash => remove.run(hash));
+  const removeLinks = db.transaction((hashes) => {
+    hashes.forEach((hash) => remove.run(hash));
   });
 
   removeLinks(hashesToRemove);
@@ -128,8 +142,8 @@ const run = async options => {
   const fetchedLinks = await fetcher(newLinks);
 
   const finalLinks = fetchedLinks
-    .filter(link => link && link.paths)
-    .map(link => ({
+    .filter((link) => link && link.paths)
+    .map((link) => ({
       href: link.href,
       hash: link.hash,
       meta: link.meta,
@@ -138,11 +152,11 @@ const run = async options => {
       tags: link.tags,
       time: link.time,
       screenshot: link.paths.screenshot,
-      frozen: link.paths.frozen
+      frozen: link.paths.frozen,
     }));
 
-  const insertLinks = db.transaction(links => {
-    links.forEach(link => insert.run(link));
+  const insertLinks = db.transaction((links) => {
+    links.forEach((link) => insert.run(link));
   });
 
   insertLinks(finalLinks);
