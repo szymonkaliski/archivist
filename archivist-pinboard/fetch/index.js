@@ -78,17 +78,30 @@ const run = async (options) => {
       time DATETIME,
       screenshot TEXT,
       frozen TEXT
+      fulltext TEXT
     )
     `
   ).run();
+
+  db.prepare(
+    `
+    CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
+    USING FTS5(meta, description, extended, tags, fulltext);
+
+    CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
+      INSERT INTO ft_search(meta, description, extended, tags, fulltext)
+      VALUES (new.meta, new.description, new.extended, new.tags, new.fulltext);
+    END
+    `
+  ).run()
 
   const search = db.prepare(
     "SELECT count(hash) AS count FROM data WHERE hash = ?"
   );
 
   const insert = db.prepare(
-    `INSERT OR REPLACE INTO data (href,   hash,  meta,  description,  extended,  tags,  time,  screenshot,  frozen)
-     VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen)`
+    `INSERT OR REPLACE INTO data (href,   hash,  meta,  description,  extended,  tags,  time,  screenshot,  frozen,  fulltext)
+     VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen, :fulltext)`
   );
 
   const remove = db.prepare("DELETE FROM data WHERE hash = ?");
@@ -153,6 +166,7 @@ const run = async (options) => {
       time: link.time,
       screenshot: link.paths.screenshot,
       frozen: link.paths.frozen,
+      fulltext: link.fulltext,
     }));
 
   const insertLinks = db.transaction((links) => {

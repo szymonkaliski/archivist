@@ -64,6 +64,18 @@ const run = async options => {
     `
   ).run();
 
+  db.prepare(
+    `
+    CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
+    USING FTS5(board, title, text);
+
+    CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
+      INSERT INTO ft_search(board, title, text)
+      VALUES (new.board, new.title, new.text);
+    END
+    `
+  ).run()
+
   const search = db.prepare(
     "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
   );

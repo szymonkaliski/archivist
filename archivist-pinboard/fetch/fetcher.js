@@ -7,6 +7,7 @@ const mkdirp = require("mkdirp");
 const path = require("path");
 const puppeteer = require("puppeteer");
 const wayback = require("wayback-machine");
+const { JSDOM } = require("jsdom");
 
 const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
@@ -33,7 +34,7 @@ const savePageInternal = async (browser, link, url) => {
     console.log("[archivist-pinboard]", "already downloaded:", link);
     return {
       screenshot: path.basename(screenshotPath),
-      frozen: path.basename(frozenPath)
+      frozen: path.basename(frozenPath),
     };
   }
 
@@ -85,7 +86,7 @@ const savePageInternal = async (browser, link, url) => {
 
     const frozen = await Promise.race([
       page.evaluate(async () => await window.freezeDry()),
-      page.waitFor(5000)
+      page.waitFor(5000),
     ]);
 
     fs.writeFileSync(frozenPath, frozen, "utf-8");
@@ -100,7 +101,7 @@ const savePageInternal = async (browser, link, url) => {
   return {
     screenshot:
       didScreenshot === true ? path.basename(screenshotPath) : undefined,
-    frozen: didFreeze === true ? path.basename(frozenPath) : undefined
+    frozen: didFreeze === true ? path.basename(frozenPath) : undefined,
   };
 };
 
@@ -110,7 +111,7 @@ const savePage = async (browser, link) => {
   if (!isOnline) {
     console.log("[archivist-pinboard]", "offline, trying wayback for:", link);
 
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       wayback.getClosest(link, (err, closest) => {
         const isError = !!err;
         const isClosest = closest && !!closest.available && !!closest.url;
@@ -131,7 +132,7 @@ const savePage = async (browser, link) => {
             closest.url
           );
 
-          savePageInternal(browser, closest.url, link).then(paths =>
+          savePageInternal(browser, closest.url, link).then((paths) =>
             resolve(paths)
           );
         }
@@ -142,7 +143,12 @@ const savePage = async (browser, link) => {
   return await savePageInternal(browser, link, link);
 };
 
-const run = async links => {
+const getFulltext = async (frozenPath) => {
+  const DOM = await JSDOM.fromFile(frozenPath);
+  return DOM.window.document.body.textContent;
+};
+
+const run = async (links) => {
   const headless = true;
   const browser = await puppeteer.launch({ headless, ignoreHTTPSErrors: true });
 
@@ -152,10 +158,13 @@ const run = async links => {
       10,
       (link, callback) => {
         savePage(browser, link.href)
-          .then(paths => {
-            callback(null, { ...link, paths });
+          .then(async (paths) => {
+            const frozenPath = path.join(FROZEN_PATH, paths.frozen);
+            const fulltext = paths.frozen ? await getFulltext(frozenPath) : "";
+
+            callback(null, { ...link, fulltext, paths });
           })
-          .catch(e => {
+          .catch((e) => {
             console.log(
               "[archivist-pinboard]",
               "uncatched error",

@@ -14,15 +14,11 @@ const query = async (_, text) => {
       .prepare(
         `
         SELECT *
-        FROM data
-        WHERE
-          board LIKE :query OR
-          text LIKE :query OR
-          title LIKE :query OR
-          link LIKE :query
+        FROM ft_search JOIN data ON ft_search.rowid = data.rowid
+        WHERE ft_search MATCH :search
         `
       )
-      .all({ query: `%${text}%` });
+      .all({ search: `"${text}"` });
   } else {
     search = db.prepare("SELECT * FROM data").all();
   }
