@@ -15,16 +15,12 @@ mkdirp(DATA_PATH);
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-pins.json");
 
-const makePinId = pin => {
-  return chain(pin.url)
-    .split("/")
-    .takeRight(2)
-    .first()
-    .value();
+const makePinId = (pin) => {
+  return chain(pin.url).split("/").takeRight(2).first().value();
 };
 
-const processRemovedPins = async removedPins => {
-  return new Promise(resolve => {
+const processRemovedPins = async (removedPins) => {
+  return new Promise((resolve) => {
     async.mapLimit(
       removedPins,
       10,
@@ -43,11 +39,8 @@ const processRemovedPins = async removedPins => {
   });
 };
 
-const run = async options => {
-  const db = new Database(path.join(DATA_PATH, "data.db"));
-
-  db.prepare(
-    `
+const SETUP_STATEMENTS = [
+  `
     CREATE TABLE IF NOT EXISTS data (
       board TEXT,
       filename TEXT,
@@ -61,20 +54,23 @@ const run = async options => {
       crawldate DATETIME,
       createdat DATETIME
     )
-    `
-  ).run();
-
-  db.prepare(
-    `
+  `,
+  `
     CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
     USING FTS5(board, title, text);
-
+  `,
+  `
     CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
       INSERT INTO ft_search(board, title, text)
       VALUES (new.board, new.title, new.text);
     END
-    `
-  ).run()
+  `,
+];
+
+const run = async (options) => {
+  const db = new Database(path.join(DATA_PATH, "data.db"));
+
+  SETUP_STATEMENTS.forEach((stmt) => db.prepare(stmt).run());
 
   const search = db.prepare(
     "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
@@ -104,7 +100,7 @@ const run = async options => {
   );
   // console.log("[archivist-pinterest-crawl]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
-  const newPins = crawledPins.filter(pin => {
+  const newPins = crawledPins.filter((pin) => {
     if (!pin) {
       return false;
     }
@@ -114,7 +110,7 @@ const run = async options => {
   });
 
   const removedPins = dbPins.filter(
-    ({ pinid }) => !crawledPins.find(pin => makePinId(pin) === pinid)
+    ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid)
   );
 
   console.log(
@@ -124,8 +120,8 @@ const run = async options => {
 
   const pinidsToRemove = await processRemovedPins(removedPins);
 
-  const removePins = db.transaction(pinids => {
-    pinids.forEach(pinid => remove.run(pinid));
+  const removePins = db.transaction((pinids) => {
+    pinids.forEach((pinid) => remove.run(pinid));
   });
 
   removePins(pinidsToRemove);
@@ -136,7 +132,7 @@ const run = async options => {
 
   const crawldate = dateFormat(new Date(), "isoDateTime");
 
-  const finalPins = fetchedPins.map(pin => ({
+  const finalPins = fetchedPins.map((pin) => ({
     board: pin.board,
     filename: pin.filename,
     title: pin.title,
@@ -149,11 +145,11 @@ const run = async options => {
       ? dateFormat(new Date(pin.createdAt), "isoDateTime")
       : undefined,
     width: pin.width,
-    height: pin.height
+    height: pin.height,
   }));
 
-  const insertPins = db.transaction(pins => {
-    pins.forEach(pin => insert.run(pin));
+  const insertPins = db.transaction((pins) => {
+    pins.forEach((pin) => insert.run(pin));
   });
 
   insertPins(finalPins);

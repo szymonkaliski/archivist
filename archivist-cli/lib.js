@@ -90,4 +90,4 @@ const search = (query) => {
   });
 };
 
-module.exports = { loadConfig, loadCrawler, fetch, search };
+module.exports = { loadConfig, loadCrawler, fetch, search, CONFIG_FILE };

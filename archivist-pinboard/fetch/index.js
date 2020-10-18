@@ -46,6 +46,33 @@ const processRemovedLinks = async (removedLinks) => {
   });
 };
 
+const SETUP_STATEMENTS = [
+  `
+    CREATE TABLE IF NOT EXISTS data (
+      href TEXT,
+      hash TEXT PRIMARY KEY,
+      meta TEXT,
+      description TEXT,
+      extended TEXT,
+      tags TEXT,
+      time DATETIME,
+      screenshot TEXT,
+      frozen TEXT
+      fulltext TEXT
+    )
+  `,
+  `
+    CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
+    USING FTS5(meta, description, extended, tags, fulltext);
+  `,
+  `
+    CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
+      INSERT INTO ft_search(meta, description, extended, tags, fulltext)
+      VALUES (new.meta, new.description, new.extended, new.tags, new.fulltext);
+    END
+  `,
+];
+
 const run = async (options) => {
   if (!options.apiKey) {
     throw new Error("apiKey not provided");
@@ -66,34 +93,7 @@ const run = async (options) => {
 
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
-  db.prepare(
-    `
-    CREATE TABLE IF NOT EXISTS data (
-      href TEXT,
-      hash TEXT PRIMARY KEY,
-      meta TEXT,
-      description TEXT,
-      extended TEXT,
-      tags TEXT,
-      time DATETIME,
-      screenshot TEXT,
-      frozen TEXT
-      fulltext TEXT
-    )
-    `
-  ).run();
-
-  db.prepare(
-    `
-    CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
-    USING FTS5(meta, description, extended, tags, fulltext);
-
-    CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
-      INSERT INTO ft_search(meta, description, extended, tags, fulltext)
-      VALUES (new.meta, new.description, new.extended, new.tags, new.fulltext);
-    END
-    `
-  ).run()
+  SETUP_STATEMENTS.forEach((stmt) => db.prepare(stmt).run());
 
   const search = db.prepare(
     "SELECT count(hash) AS count FROM data WHERE hash = ?"

@@ -4,7 +4,7 @@ const fs = require("fs");
 const yargs = require("yargs");
 const { spawn } = require("child_process");
 
-const { fetch, search } = require("./lib");
+const { fetch, search, CONFIG_FILE } = require("./lib");
 
 const args = yargs
   .command("config", "open configuration file")
