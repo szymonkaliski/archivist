@@ -14,7 +14,7 @@ const query = async (_, text) => {
       .prepare(
         `
         SELECT *
-        FROM ft_search JOIN data ON ft_search.rowid = data.rowid
+        FROM ft_search JOIN data ON ft_search.pinid = data.pinid
         WHERE ft_search MATCH :search
         `
       )

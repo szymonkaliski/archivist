@@ -62,13 +62,16 @@ const SETUP_STATEMENTS = [
     )
   `,
   `
+    CREATE INDEX IF NOT EXISTS hash_idx ON data(hash)
+  `,
+  `
     CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
-    USING FTS5(meta, description, extended, tags, fulltext);
+    USING FTS5(hash, meta, description, extended, tags, fulltext);
   `,
   `
     CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
-      INSERT INTO ft_search(meta, description, extended, tags, fulltext)
-      VALUES (new.meta, new.description, new.extended, new.tags, new.fulltext);
+      INSERT INTO ft_search(hash, meta, description, extended, tags, fulltext)
+      VALUES (new.hash, new.meta, new.description, new.extended, new.tags, new.fulltext);
     END
   `,
 ];
