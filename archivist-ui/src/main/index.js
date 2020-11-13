@@ -1,5 +1,5 @@
 const path = require("path");
-const { app, BrowserWindow } = require("electron");
+const { app, protocol, BrowserWindow } = require("electron");
 const { format } = require("url");
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -10,8 +10,8 @@ const createWindow = () => {
   const window = new BrowserWindow({
     webPreferences: {
       webSecurity: false, // otherwise we can't load images using file:/// url
-      nodeIntegration: true
-    }
+      nodeIntegration: true,
+    },
   });
 
   if (IS_DEV) {
@@ -22,7 +22,7 @@ const createWindow = () => {
       format({
         pathname: path.join(__dirname, "index.html"),
         protocol: "file",
-        slashes: true
+        slashes: true,
       })
     );
   }
@@ -47,5 +47,10 @@ app.on("activate", () => {
 });
 
 app.on("ready", () => {
+  protocol.registerFileProtocol("file", (request, callback) => {
+    const pathname = decodeURI(request.url.replace("file://", ""));
+    callback(pathname);
+  });
+
   mainWindow = createWindow();
 });

@@ -18,6 +18,7 @@
     "title": "Archivist",
     "whiteListedModules": [
       "use-debounce",
+      "use-throttle",
       "react-hotkeys-hook"
     ]
   },
@@ -25,25 +26,25 @@
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "devDependencies": {
-    "@babel/preset-react": "^7.9.4",
-    "css-loader": "^3.5.3",
-    "electron": "^8.2.3",
-    "electron-builder": "^22.5.1",
+    "@babel/preset-react": "^7.12.5",
+    "css-loader": "^5.0.1",
+    "electron": "^10.1.5",
+    "electron-builder": "^22.9.1",
     "electron-webpack": "^2.8.2",
-    "webpack": "^4.43.0"
+    "webpack": "^4.44.2"
   },
   "dependencies": {
     "dateformat": "^3.0.3",
-    "fuse.js": "^5.2.3",
-    "immer": "^6.0.3",
-    "lodash": "^4.17.15",
-    "react": "16.13.1",
-    "react-dom": "16.13.1",
-    "react-hotkeys-hook": "^2.1.3",
-    "react-virtualized": "^9.21.2",
+    "immer": "^7.0.14",
+    "lodash": "^4.17.20",
+    "react": "17.0.1",
+    "react-dom": "17.0.1",
+    "react-hotkeys-hook": "^2.4.0",
+    "react-virtualized": "^9.22.2",
     "source-map-support": "^0.5.19",
     "strip": "^3.0.0",
-    "tachyons": "^4.11.1",
-    "use-debounce": "^3.4.2"
+    "tachyons": "^4.12.0",
+    "use-debounce": "^5.0.4",
+    "use-throttle": "0.0.3"
   }
 }

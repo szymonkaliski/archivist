@@ -6,7 +6,7 @@ const { chain, identity } = require("lodash");
 const { produce } = require("immer");
 const { shell } = require("electron");
 const { spawn, spawnSync } = require("child_process");
-const { useDebounce } = require("use-debounce");
+const { useThrottle } = require("use-throttle");
 const { useHotkeys } = require("react-hotkeys-hook");
 
 const {
@@ -14,6 +14,7 @@ const {
   CellMeasurer,
   CellMeasurerCache,
   createMasonryCellPositioner,
+  Grid,
   Masonry,
 } = require("react-virtualized");
 
@@ -22,8 +23,12 @@ require("react-virtualized/styles.css");
 
 const { useEffect, useCallback, useRef, useReducer } = React;
 
-const SPACER = 10;
 const SHELL = process.env.SHELL || "bash";
+const SPACER = 10;
+const THROTTLE_TIME = 100;
+
+const USE_MASONRY = false;
+const USE_GRID = true;
 
 // running archivist in an interactive shell to support stuff like nvm
 const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
@@ -58,66 +63,74 @@ const executeCLI = async (command, args) => {
 };
 
 const calcColumnWidth = ({ width }) => {
-  return width / Math.floor(width / 400) - SPACER;
+  return width / Math.floor(width / 400);
 };
 
-const HoverInfo = ({ meta, link, img, time, setSearchText }) => (
+const Info = ({ meta, link, img, time, setSearchText }) => {
+  return (
+    <div>
+      <a
+        className="mb2 db f6 lh-title no-underline underline-hover white word-wrap truncate"
+        href="#"
+        onClick={() => link && shell.openExternal(link)}
+      >
+        {meta.title || link}
+      </a>
+
+      {meta.note && <div className="mb2 lh-copy">{strip(meta.note)}</div>}
+
+      {meta.tags && (
+        <div>
+          {meta.tags.map((tag) => (
+            <a
+              key={tag}
+              className="no-underline underline-hover light-gray mr1"
+              href="#"
+              onClick={() => setSearchText(tag)}
+            >
+              {tag}
+            </a>
+          ))}
+        </div>
+      )}
+
+      <div className="mt2 flex justify-between items-center">
+        <div>
+          {[
+            link && ["src", () => shell.openExternal(link)],
+            meta.static && ["frozen", () => shell.openItem(meta.static)],
+            ["img", () => shell.openItem(img)],
+          ]
+            .filter(identity)
+            .map(([text, callback]) => (
+              <a
+                key={text}
+                className="link dim br2 ph2 pv1 dib white bg-mid-gray mr1"
+                href="#"
+                onClick={callback}
+              >
+                {text}
+              </a>
+            ))}
+        </div>
+        <div className="tr gray">
+          {meta.source} / {dateFormat(time, "yyyy-mm-dd")}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const HoverInfo = ({ ...props }) => (
   <div
     className="absolute bg-dark-gray pa2 f7 white w-100"
     style={{ bottom: 0, left: 0, right: 0 }}
   >
-    <a
-      className="mb2 db f6 lh-title no-underline underline-hover white word-wrap truncate"
-      href="#"
-      onClick={() => link && shell.openExternal(link)}
-    >
-      {meta.title || link}
-    </a>
-
-    {meta.note && <div className="mb2 lh-copy">{strip(meta.note)}</div>}
-
-    {meta.tags && (
-      <div>
-        {meta.tags.map((tag) => (
-          <a
-            key={tag}
-            className="no-underline underline-hover light-gray mr1"
-            href="#"
-            onClick={() => setSearchText(tag)}
-          >
-            {tag}
-          </a>
-        ))}
-      </div>
-    )}
-
-    <div className="mt2 flex justify-between items-center">
-      <div>
-        {[
-          link && ["src", () => shell.openExternal(link)],
-          meta.static && ["frozen", () => shell.openItem(meta.static)],
-          ["img", () => shell.openItem(img)],
-        ]
-          .filter(identity)
-          .map(([text, callback]) => (
-            <a
-              key={text}
-              className="link dim br2 ph2 pv1 dib white bg-mid-gray mr1"
-              href="#"
-              onClick={callback}
-            >
-              {text}
-            </a>
-          ))}
-      </div>
-      <div className="tr gray">
-        {meta.source} / {dateFormat(time, "yyyy-mm-dd")}
-      </div>
-    </div>
+    <Info {...props} />
   </div>
 );
 
-const createCellRenderer = ({
+const createMasonryCellRenderer = ({
   data,
   width,
   cache,
@@ -125,10 +138,9 @@ const createCellRenderer = ({
   hoveredId,
   setSearchText,
 }) => ({ index, key, parent, style }) => {
-  const columnWidth = calcColumnWidth({ width });
+  const columnWidth = calcColumnWidth({ width }) - SPACER;
   const datum = data[index] || {};
   const ratio = datum.height / datum.width;
-  const imgPath = datum.img;
 
   return (
     <CellMeasurer cache={cache.current} index={index} key={key} parent={parent}>
@@ -143,7 +155,7 @@ const createCellRenderer = ({
           style={{
             height: ratio * columnWidth,
             width: columnWidth,
-            backgroundImage: `url("file:${imgPath}")`,
+            backgroundImage: `url("file:${datum.img}")`,
             backgroundSize: "contain",
             backgroundRepeat: "no-repeat",
             backgroundPosition: "center",
@@ -183,6 +195,76 @@ const SearchOverlay = React.forwardRef(
   )
 );
 
+const createGridCellRenderer = ({
+  data,
+  setHoveredId,
+  hoveredId,
+  setSearchText,
+  columnCount,
+}) => ({ columnIndex, rowIndex, key, parent, style }) => {
+  const index = rowIndex * columnCount + columnIndex;
+  const datum = data[index];
+
+  if (!datum) {
+    return null;
+  }
+
+  return (
+    <div
+      style={style}
+      className="h-100 pa1"
+      onMouseEnter={() => setHoveredId(datum.id)}
+      onMouseLeave={() => setHoveredId(null)}
+    >
+        <div
+          className="h-100 relative"
+          style={{
+            backgroundImage: `url("file:${datum.img}")`,
+            backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center",
+            transform: "translateZ(0)",
+          }}
+        >
+          {hoveredId === datum.id && (
+            <HoverInfo setSearchText={setSearchText} {...datum} />
+          )}
+        </div>
+    </div>
+  );
+};
+
+const GridWrapper = ({
+  data,
+  width,
+  height,
+  setHoveredId,
+  hoveredId,
+  setSearchText,
+}) => {
+  const columnWidth = calcColumnWidth({ width });
+  const columnCount = Math.round(width / columnWidth);
+  const rowCount = Math.ceil(data.length / columnCount);
+
+  return (
+    <Grid
+      cellRenderer={createGridCellRenderer({
+        data,
+        setHoveredId,
+        hoveredId,
+        setSearchText,
+        columnCount,
+      })}
+      height={height}
+      width={width}
+      columnCount={columnCount}
+      columnWidth={columnWidth}
+      rowCount={rowCount}
+      rowHeight={columnWidth}
+    />
+  );
+};
+
 const reducer = (state, action) => {
   if (action.type === "SET_DATA") {
     state.data = action.data;
@@ -215,16 +297,20 @@ const App = () => {
     hoverId: null,
   });
 
-  const [debouncedSearchText] = useDebounce(state.searchText, 30);
+  const lastEntry = useRef("");
+  const throttledSearchText = useThrottle(state.searchText, THROTTLE_TIME);
 
   const searchInputRef = useRef(null);
   const masonry = useRef(null);
 
   useHotkeys(
     "/",
-    () => {
+    (e) => {
       if (!state.isSearching) {
-        dispatch({ type: "SET_IS_SEARCHING", isSearching: true });
+        // otherwise `/` ends up in text input
+        setTimeout(() => {
+          dispatch({ type: "SET_IS_SEARCHING", isSearching: true });
+        }, 0);
       } else if (searchInputRef.current) {
         searchInputRef.current.focus();
       }
@@ -264,8 +350,19 @@ const App = () => {
   );
 
   useEffect(() => {
-    executeCLI("search", debouncedSearchText)
+    lastEntry.current = throttledSearchText;
+
+    executeCLI(
+      "search",
+      throttledSearchText && throttledSearchText.length > 3
+        ? `"${throttledSearchText}"`
+        : undefined
+    )
       .then((data) => {
+        if (lastEntry.current !== throttledSearchText) {
+          return;
+        }
+
         const finalData = chain(data)
           .map((d) => ({
             ...d,
@@ -280,7 +377,7 @@ const App = () => {
       .catch((e) => {
         console.error("archivist-cli error", e.toString());
       });
-  }, [debouncedSearchText]);
+  }, [throttledSearchText]);
 
   const onResize = useCallback(
     ({ width }) => {
@@ -317,37 +414,52 @@ const App = () => {
   return (
     <div className="sans-serif w-100 vh-100 bg-light-gray">
       <AutoSizer
-        key={debouncedSearchText + "-" + state.data.length}
+        key={throttledSearchText + "-" + state.data.length}
         onResize={onResize}
         style={{ outline: "none" }}
       >
         {({ width, height }) =>
-          state.data.length > 0 ? (
-            <Masonry
-              style={{
-                padding: SPACER / 2,
-              }}
-              overscanByPixels={300}
-              ref={masonry}
-              cellCount={state.data.length}
-              cellMeasurerCache={cache.current}
-              cellPositioner={cellPositioner.current}
-              cellRenderer={createCellRenderer({
-                data: state.data,
-                width,
-                cache,
-                setHoveredId: (hoverId) =>
-                  dispatch({ type: "SET_HOVER_ID", hoverId }),
-                hoveredId: state.hoverId,
-                setSearchText: (searchText) => {
-                  dispatch({ type: "SET_SEARCH_TEXT", searchText });
-                },
-              })}
-              width={width}
-              height={height}
-            />
-          ) : (
-            <div />
+          state.data.length > 0 && (
+            <>
+              {USE_MASONRY && (
+                <Masonry
+                  style={{ padding: SPACER / 2 }}
+                  overscanByPixels={300}
+                  ref={masonry}
+                  cellCount={state.data.length}
+                  cellMeasurerCache={cache.current}
+                  cellPositioner={cellPositioner.current}
+                  cellRenderer={createMasonryCellRenderer({
+                    data: state.data,
+                    width,
+                    cache,
+                    setHoveredId: (hoverId) =>
+                      dispatch({ type: "SET_HOVER_ID", hoverId }),
+                    hoveredId: state.hoverId,
+                    setSearchText: (searchText) => {
+                      dispatch({ type: "SET_SEARCH_TEXT", searchText });
+                    },
+                  })}
+                  width={width}
+                  height={height}
+                />
+              )}
+
+              {USE_GRID && (
+                <GridWrapper
+                  data={state.data}
+                  height={height}
+                  width={width}
+                  setHoveredId={(hoverId) =>
+                    dispatch({ type: "SET_HOVER_ID", hoverId })
+                  }
+                  hoveredId={state.hoverId}
+                  setSearchText={(searchText) => {
+                    dispatch({ type: "SET_SEARCH_TEXT", searchText });
+                  }}
+                />
+              )}
+            </>
           )
         }
       </AutoSizer>
