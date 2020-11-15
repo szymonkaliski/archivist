@@ -98,8 +98,8 @@ const Info = ({ meta, link, img, time, setSearchText }) => {
         <div>
           {[
             link && ["src", () => shell.openExternal(link)],
-            meta.static && ["frozen", () => shell.openItem(meta.static)],
-            ["img", () => shell.openItem(img)],
+            meta.static && ["frozen", () => shell.openPath(meta.static)],
+            ["img", () => shell.openPath(img)],
           ]
             .filter(identity)
             .map(([text, callback]) => (
