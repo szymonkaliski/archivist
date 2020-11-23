@@ -19,7 +19,7 @@ const query = async (_, text) => {
         WHERE ft_search MATCH :search
         `
       )
-      .all({ search: `"${text}"` });
+      .all({ search: `${text}*` });
   } else {
     search = db.prepare("SELECT * FROM data").all();
   }

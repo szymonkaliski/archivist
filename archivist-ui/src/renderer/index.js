@@ -4,7 +4,7 @@ const dateFormat = require("dateformat");
 const strip = require("strip");
 const { chain, identity } = require("lodash");
 const { produce } = require("immer");
-const { shell } = require("electron");
+const { shell, clipboard } = require("electron");
 const { spawn, spawnSync } = require("child_process");
 const { useThrottle } = require("use-throttle");
 const { useHotkeys } = require("react-hotkeys-hook");
@@ -32,6 +32,14 @@ const USE_GRID = true;
 
 // running archivist in an interactive shell to support stuff like nvm
 const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
+
+const shorten = (text, length) => {
+  if (text.length < length) {
+    return text;
+  }
+
+  return text.slice(0, length - 1).trim() + "…";
+};
 
 const executeCLI = async (command, args) => {
   return new Promise((resolve, reject) => {
@@ -77,7 +85,9 @@ const Info = ({ meta, link, img, time, setSearchText }) => {
         {meta.title || link}
       </a>
 
-      {meta.note && <div className="mb2 lh-copy">{strip(meta.note)}</div>}
+      {meta.note && (
+        <div className="mb2 lh-copy">{shorten(strip(meta.note), 300)}</div>
+      )}
 
       {meta.tags && (
         <div>
@@ -100,6 +110,7 @@ const Info = ({ meta, link, img, time, setSearchText }) => {
             link && ["src", () => shell.openExternal(link)],
             meta.static && ["frozen", () => shell.openPath(meta.static)],
             ["img", () => shell.openPath(img)],
+            ["copy img path", () => clipboard.writeText(`'${img}'`)],
           ]
             .filter(identity)
             .map(([text, callback]) => (
@@ -211,25 +222,25 @@ const createGridCellRenderer = ({
 
   return (
     <div
-      style={style}
-      className="h-100 pa1"
+      style={{ ...style, padding: 1 }}
+      className="h-100"
       onMouseEnter={() => setHoveredId(datum.id)}
       onMouseLeave={() => setHoveredId(null)}
     >
-        <div
-          className="h-100 relative"
-          style={{
-            backgroundImage: `url("file:${datum.img}")`,
-            backgroundSize: "cover",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "center",
-            transform: "translateZ(0)",
-          }}
-        >
-          {hoveredId === datum.id && (
-            <HoverInfo setSearchText={setSearchText} {...datum} />
-          )}
-        </div>
+      <div
+        className="h-100 relative bg-dark-gray"
+        style={{
+          backgroundImage: `url("file:${datum.img}")`,
+          backgroundSize: "contain", // "cover"
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+          transform: "translateZ(0)",
+        }}
+      >
+        {hoveredId === datum.id && (
+          <HoverInfo setSearchText={setSearchText} {...datum} />
+        )}
+      </div>
     </div>
   );
 };
@@ -412,7 +423,7 @@ const App = () => {
   }
 
   return (
-    <div className="sans-serif w-100 vh-100 bg-light-gray">
+    <div className="sans-serif w-100 vh-100 bg-gray" style={{ padding: 1 }}>
       <AutoSizer
         key={throttledSearchText + "-" + state.data.length}
         onResize={onResize}
