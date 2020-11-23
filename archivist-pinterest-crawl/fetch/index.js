@@ -60,12 +60,12 @@ const SETUP_STATEMENTS = [
   `,
   `
     CREATE VIRTUAL TABLE IF NOT EXISTS ft_search
-    USING FTS5(pinid, board, title, text);
+    USING FTS5(pinid, board, link, title, text);
   `,
   `
     CREATE TRIGGER IF NOT EXISTS ft_search_update AFTER INSERT ON data BEGIN
-      INSERT INTO ft_search(pinid, board, title, text)
-      VALUES (new.pinid, new.board, new.title, new.text);
+      INSERT INTO ft_search(pinid, board, link, title, text)
+      VALUES (new.pinid, new.board, new.link, new.title, new.text);
     END
   `,
 ];
