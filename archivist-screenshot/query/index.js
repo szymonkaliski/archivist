@@ -1,5 +1,13 @@
 const mdfind = require("mdfind");
 
+const first = (xs) => {
+  if (!xs) {
+    return;
+  }
+
+  return xs[0];
+};
+
 module.exports = (options, text = "Screenshot") => {
   const response = mdfind({
     query: text,
@@ -30,7 +38,7 @@ module.exports = (options, text = "Screenshot") => {
           return {
             img: d.kMDItemPath,
             id: d.kMDItemPath,
-            link: d.kMDItemWhereFroms,
+            link: first(d.kMDItemWhereFroms),
             time,
 
             width,
