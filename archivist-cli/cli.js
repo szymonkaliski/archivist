@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
-const yargs = require("yargs");
 const { spawn } = require("child_process");
 
 const { fetch, search, CONFIG_FILE } = require("./lib");
 
-const args = yargs
+const yargs = require("yargs")
   .command("config", "open configuration file")
   .command("fetch", "fetch all configured crawlers")
   .command("search", "search all crawlers", (yargs) => {
     yargs.option("json", { description: "output as JSON" });
   })
   .demandCommand(1, "you need to provide a command")
-  .help().argv;
+  .help();
 
+const args = yargs.argv;
 const [TYPE] = args._;
 
 if (TYPE === "config") {
@@ -39,4 +39,6 @@ if (TYPE === "config") {
       result.forEach((d) => console.log(JSON.stringify(d))).value();
     }
   });
+} else {
+  yargs.showHelp();
 }
