@@ -297,6 +297,10 @@ const reducer = (state, action) => {
     state.hoverId = action.hoverId;
   }
 
+  if (action.type === "SET_HAS_BOOTED") {
+    state.isBooting = false;
+  }
+
   return state;
 };
 
@@ -306,6 +310,7 @@ const App = () => {
   const [state, dispatch] = useReducer(immutableReducer, {
     data: [],
     searchText: "",
+    isBooting: true,
     isSearching: false,
     hoverId: null,
   });
@@ -362,13 +367,19 @@ const App = () => {
     })
   );
 
+  const isBooting = state.isBooting;
+
   useEffect(() => {
     lastEntry.current = throttledSearchText;
+
+    console.time("execute");
 
     executeCLI(
       "search",
       throttledSearchText && throttledSearchText.length > 3
         ? `"${throttledSearchText}"`
+        : isBooting // start by querying just a couple of items for faster perceived start
+        ? "--limit 10"
         : undefined
     )
       .then((data) => {
@@ -377,20 +388,20 @@ const App = () => {
         }
 
         const finalData = chain(data)
-          .map((d) => ({
-            ...d,
-            time: new Date(d.time),
-          }))
+          .map((d) => Object.assign(d, { time: new Date(d.time) }))
           .sortBy((d) => d.time)
           .reverse()
           .value();
 
+        console.timeEnd("execute");
+
         dispatch({ type: "SET_DATA", data: finalData });
+        dispatch({ type: "SET_HAS_BOOTED" });
       })
       .catch((e) => {
         console.error("archivist-cli error", e.toString());
       });
-  }, [throttledSearchText]);
+  }, [throttledSearchText, isBooting]);
 
   const onResize = useCallback(
     ({ width }) => {

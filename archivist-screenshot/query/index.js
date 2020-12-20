@@ -8,7 +8,7 @@ const first = (xs) => {
   return xs[0];
 };
 
-module.exports = (options, text = "Screenshot") => {
+module.exports = (options, text = "Screenshot", limit) => {
   const response = mdfind({
     query: text,
     attributes: [
@@ -18,6 +18,7 @@ module.exports = (options, text = "Screenshot") => {
       "kMDItemPixelHeight",
       "kMDItemPixelWidth",
     ],
+    limit,
     directories: [options.directory],
   });
 

@@ -6,9 +6,10 @@ const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const FROZEN_PATH = path.join(DATA_PATH, "frozen");
 
-const query = async (_, text) => {
+const query = async (_, text, limit) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
   let search;
+  const limitSql = limit ? `LIMIT ${limit}` : "";
 
   if (text) {
     search = db
@@ -17,14 +18,24 @@ const query = async (_, text) => {
         SELECT *
         FROM ft_search JOIN data ON ft_search.hash = data.hash
         WHERE ft_search MATCH :search
+        ORDER BY time DESC
+        ${limitSql}
         `
       )
       .all({ search: `${text}*` });
   } else {
-    search = db.prepare("SELECT * FROM data").all();
+    search = db
+      .prepare(
+        `
+        SELECT * FROM data
+        ORDER BY time DESC
+        ${limitSql}
+        `
+      )
+      .all();
   }
 
-  return search.map(d => ({
+  return search.map((d) => ({
     img: path.join(ASSETS_PATH, d.screenshot),
     link: d.href,
     id: d.hash,
@@ -38,8 +49,8 @@ const query = async (_, text) => {
       title: d.description,
       note: d.extended,
       tags: d.tags.split(" "),
-      static: d.frozen ? path.join(FROZEN_PATH, d.frozen) : undefined
-    }
+      static: d.frozen ? path.join(FROZEN_PATH, d.frozen) : undefined,
+    },
   }));
 };
 

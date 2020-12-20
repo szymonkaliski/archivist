@@ -9,6 +9,10 @@ const yargs = require("yargs")
   .command("config", "open configuration file")
   .command("fetch", "fetch all configured crawlers")
   .command("search", "search all crawlers", (yargs) => {
+    yargs.option("limit", {
+      type: "number",
+      description: "limit amount of results returned",
+    });
     yargs.option("json", { description: "output as JSON" });
   })
   .demandCommand(1, "you need to provide a command")
@@ -32,7 +36,7 @@ if (TYPE === "config") {
 } else if (TYPE === "fetch") {
   fetch();
 } else if (TYPE === "search") {
-  search(args._[1]).then((result) => {
+  search(args._[1], args.limit).then((result) => {
     if (args.json) {
       console.log(JSON.stringify(result.value(), null, 2));
     } else {

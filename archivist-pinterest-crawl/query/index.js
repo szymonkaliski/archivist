@@ -5,9 +5,10 @@ const path = require("path");
 const DATA_PATH = envPaths("archivist-pinterest").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 
-const query = async (_, text) => {
+const query = async (_, text, limit) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
   let search;
+  const limitSql = limit ? `LIMIT ${limit}` : "";
 
   if (text) {
     search = db
@@ -16,14 +17,24 @@ const query = async (_, text) => {
         SELECT *
         FROM ft_search JOIN data ON ft_search.pinid = data.pinid
         WHERE ft_search MATCH :search
+        ORDER BY createdat DESC
+        ${limitSql}
         `
       )
       .all({ search: `${text}*` });
   } else {
-    search = db.prepare("SELECT * FROM data").all();
+    search = db
+      .prepare(
+        `
+        SELECT * FROM data
+        ORDER BY createdat DESC
+        ${limitSql}
+        `
+      )
+      .all();
   }
 
-  return search.map(d => ({
+  return search.map((d) => ({
     img: path.join(ASSETS_PATH, d.filename),
     link: d.link,
     id: d.pinid,
@@ -36,8 +47,8 @@ const query = async (_, text) => {
       source: "pinterest",
       title: d.title,
       note: d.text,
-      tags: [d.board]
-    }
+      tags: [d.board],
+    },
   }));
 };
 

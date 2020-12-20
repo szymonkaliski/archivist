@@ -62,15 +62,14 @@ const fetch = () => {
   });
 };
 
-const search = (query) => {
+const search = (query, limit) => {
   return new Promise((resolve, reject) => {
-    async.mapLimit(
+    async.map(
       Object.entries(loadConfig()),
-      os.cpus().length,
       ([name, config], callback) => {
-        loadCrawler(name).then((crawler) => {
-          crawler(config)
-            .query(query)
+        // loading the whole crawler is slow - maybe due to puppeteer?
+        loadCrawler(`${name}/query`).then((crawlerQuery) => {
+          crawlerQuery(config, query, limit)
             .then((result) => callback(null, result))
             .catch((e) => callback(`[${name}] search error ${e}`));
         });
