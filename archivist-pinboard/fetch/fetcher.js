@@ -159,8 +159,9 @@ const run = async (links) => {
       (link, callback) => {
         savePage(browser, link.href)
           .then(async (paths) => {
-            const frozenPath = path.join(FROZEN_PATH, paths.frozen);
-            const fulltext = paths.frozen ? await getFulltext(frozenPath) : "";
+            const fulltext = paths.frozen
+              ? await getFulltext(path.join(FROZEN_PATH, paths.frozen))
+              : "";
 
             callback(null, { ...link, fulltext, paths });
           })
