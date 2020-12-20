@@ -20,6 +20,7 @@ const {
 
 require("tachyons/src/tachyons.css");
 require("react-virtualized/styles.css");
+require("./style.css");
 
 const { useEffect, useCallback, useRef, useReducer } = React;
 
@@ -228,10 +229,11 @@ const createGridCellRenderer = ({
       onMouseLeave={() => setHoveredId(null)}
     >
       <div
-        className="h-100 relative bg-dark-gray"
+        className="h-100 relative bg-gray"
         style={{
           backgroundImage: `url("file:${datum.img}")`,
-          backgroundSize: "contain", // "cover"
+          backgroundSize: "contain",
+          // backgroundSize: "cover",
           backgroundRepeat: "no-repeat",
           backgroundPosition: "center",
           transform: "translateZ(0)",
@@ -423,7 +425,10 @@ const App = () => {
   }
 
   return (
-    <div className="sans-serif w-100 vh-100 bg-gray" style={{ padding: 1 }}>
+    <div
+      className="sans-serif w-100 vh-100 bg-near-white"
+      style={{ padding: 1 }}
+    >
       <AutoSizer
         key={throttledSearchText + "-" + state.data.length}
         onResize={onResize}

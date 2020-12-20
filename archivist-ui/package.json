@@ -26,25 +26,25 @@
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "devDependencies": {
-    "@babel/preset-react": "^7.12.5",
+    "@babel/preset-react": "^7.12.10",
     "css-loader": "^5.0.1",
-    "electron": "^10.1.5",
+    "electron": "^11.1.0",
     "electron-builder": "^22.9.1",
     "electron-webpack": "^2.8.2",
     "webpack": "^4.44.2"
   },
   "dependencies": {
-    "dateformat": "^3.0.3",
-    "immer": "^7.0.14",
+    "dateformat": "^4.3.1",
+    "immer": "^8.0.0",
     "lodash": "^4.17.20",
     "react": "17.0.1",
     "react-dom": "17.0.1",
     "react-hotkeys-hook": "^2.4.0",
-    "react-virtualized": "^9.22.2",
+    "react-virtualized": "^9.22.3",
     "source-map-support": "^0.5.19",
     "strip": "^3.0.0",
     "tachyons": "^4.12.0",
-    "use-debounce": "^5.0.4",
+    "use-debounce": "^5.2.0",
     "use-throttle": "0.0.3"
   }
 }
