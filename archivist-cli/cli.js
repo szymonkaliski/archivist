@@ -8,12 +8,17 @@ const { fetch, search, CONFIG_FILE } = require("./lib");
 const yargs = require("yargs")
   .command("config", "open configuration file")
   .command("fetch", "fetch all configured crawlers")
-  .command("search", "search all crawlers", (yargs) => {
-    yargs.option("limit", {
-      type: "number",
-      description: "limit amount of results returned",
-    });
-    yargs.option("json", { description: "output as JSON" });
+  .command({
+    command: "search",
+    aliases: ["query"],
+    desc: "search all crawlers",
+    builder: (yargs) => {
+      yargs.option("limit", {
+        type: "number",
+        description: "limit amount of results returned",
+      });
+      yargs.option("json", { description: "output as JSON" });
+    },
   })
   .demandCommand(1, "you need to provide a command")
   .help();
@@ -35,7 +40,7 @@ if (TYPE === "config") {
   spawn(editor, [CONFIG_FILE], { stdio: "inherit" });
 } else if (TYPE === "fetch") {
   fetch();
-} else if (TYPE === "search") {
+} else if (TYPE === "search" || TYPE === "query") {
   search(args._[1], args.limit).then((result) => {
     if (args.json) {
       console.log(JSON.stringify(result.value(), null, 2));
