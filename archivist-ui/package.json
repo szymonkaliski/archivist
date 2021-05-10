@@ -36,7 +36,7 @@
     "dateformat": "^3.0.3",
     "fuse.js": "^5.2.3",
     "immer": "^6.0.3",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.21",
     "react": "16.13.1",
     "react-dom": "16.13.1",
     "react-hotkeys-hook": "^2.1.3",
