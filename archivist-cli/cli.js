@@ -31,7 +31,7 @@ if (TYPE === "config") {
 
   if (!fs.existsSync(CONFIG_FILE)) {
     fs.writeFileSync(
-      JSON.stringify(DEFAULT_CONFIG, null, 2),
+      JSON.stringify(`{}`, null, 2),
       CONFIG_FILE,
       "utf-8"
     );

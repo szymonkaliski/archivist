@@ -376,7 +376,7 @@ const App = () => {
 
     executeCLI(
       "search",
-      throttledSearchText && throttledSearchText.length > 3
+      throttledSearchText && throttledSearchText.length >= 1
         ? `"${throttledSearchText}"`
         : isBooting // start by querying just a couple of items for faster perceived start
         ? "--limit 10"
