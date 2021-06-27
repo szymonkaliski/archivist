@@ -4,24 +4,40 @@ const async = require("async");
 const express = require("express");
 const fs = require("fs");
 const gifFrames = require("gif-frames");
+const imageThumbnail = require("image-thumbnail");
 const level = require("level");
 const mkdirp = require("mkdirp");
 const mktemp = require("mktemp");
 const mobilenet = require("@tensorflow-models/mobilenet");
 const tf = require("@tensorflow/tfjs-node");
-const tsnejs = require("./tsne.js");
+const { UMAP } = require("umap-js");
 
 const app = express();
-const cache = level("cache");
+const activationCache = level("cache/activation");
+const thumbnailCache = level("cache/thumbnail");
+const mediumCache = level("cache/medium");
 
-const TSNE_OPTS = {
-  epsilon: 10,
-  perplexity: 30,
-  dim: 2,
+const getOrInsert = (cache, key, prepareCb, cb) => {
+  cache.get(key, (err, cached) => {
+    if (err) {
+      prepareCb((err, result) => {
+        if (err) {
+          return cb(err);
+        }
+
+        cache.put(key, JSON.stringify(result), () => {
+          cb(null, result);
+        });
+      });
+    } else {
+      cb(null, JSON.parse(cached));
+    }
+  });
 };
-const TSNE_ITERS = 10;
-const I_W = 100;
-const I_H = 100;
+
+const IMG_W = 224;
+const IMG_H = 224;
+const DO_WARMUP = false;
 
 mkdirp("/tmp/archivist-browser/");
 
@@ -65,7 +81,7 @@ mobilenet.load().then((mobilenet) => {
 
         // this is black magic and I have no idea why it's necessary - but it works!
         const tensor = tf.image
-          .resizeBilinear(decoded, [I_W, I_H])
+          .resizeBilinear(decoded, [IMG_W, IMG_H])
           .toFloat()
           .div(255)
           .expandDims();
@@ -83,43 +99,31 @@ mobilenet.load().then((mobilenet) => {
   };
 
   const getActivationCached = (file, cb) => {
-    cache.get(file, (err, cached) => {
-      if (err) {
-        console.log("cache miss: " + file);
-        getActivation(file, (err, result) => {
-          if (err) {
-            cache.put(file, undefined, () => {
-              cb(null);
-            });
-          } else {
-            cache.put(file, JSON.stringify(result), () => {
-              cb(null, result);
-            });
-          }
-        });
-      } else {
-        cb(null, JSON.parse(cached));
+    getOrInsert(
+      activationCache,
+      file,
+      (cb) => {
+        console.log("activationCache miss: " + file);
+        getActivation(file, (err, result) => cb(err, result));
+      },
+      (err, result) => {
+        cb(err, result);
       }
-    });
+    );
   };
 
   const search = (query, cb) => {
-    let n = 0;
     const limit = undefined;
 
     archivist.search(query, limit).then((found) => {
       found = found.value();
+
       async.mapSeries(
         found,
         (item, cb) => {
-          console.log("search process " + n++ + "/" + found.length);
-
           getActivationCached(item.img, (err, preds) => {
             if (err) {
-              console.log("ERROR");
-              console.log(item.img);
-              console.log(err);
-              console.log("-----");
+              console.log("Error for:", item.img, err);
               cb(null);
             } else {
               item.preds = preds;
@@ -138,55 +142,126 @@ mobilenet.load().then((mobilenet) => {
     });
   };
 
-  console.time("search");
-  search(undefined, (items) => {
-    console.timeEnd("search");
+  const searchAndPrepare = (query, cb) => {
+    console.time("search");
 
-    console.time("t-sne");
+    search(undefined, (items) => {
+      console.timeEnd("search");
+      console.time("umap");
 
-    const tsne = new tsnejs.tSNE(TSNE_OPTS);
+      const umap = new UMAP({
+        nComponents: 2,
+        nEpochs: 200,
+        nNeighbors: 15,
+      });
 
-    const rawData = items.map((item) => item.preds);
+      const rawData = items.map((item) => item.preds);
 
-    tsne.initDataRaw(rawData);
+      const nEpochs = umap.initializeFit(rawData);
 
-    for (let i = 0; i < TSNE_ITERS; i++) {
-      console.log("t-sne " + i + "/" + TSNE_ITERS);
-      tsne.step();
-    }
+      for (let i = 0; i < nEpochs; i++) {
+        console.log("umap " + i + "/" + nEpochs);
+        umap.step();
+      }
 
-    let result = tsne.getSolution();
-    console.timeEnd("t-sne");
+      const embedding = umap.getEmbedding();
 
-    // console.log({ result });
+      console.timeEnd("umap");
+
+      cb(null, { items, embedding });
+    });
+  };
+
+  if (DO_WARMUP) {
+    search(undefined, () => {
+      console.log("warmed up!");
+    });
+  }
+
+  app.get("/search", (req, res) => {
+    // TODO: support query params
+    const query = undefined;
+
+    searchAndPrepare(query, (err, data) => {
+      if (err) {
+        console.log(err);
+        res.status(500);
+        return;
+      }
+
+      res.send(data);
+    });
   });
 
-  // // TODO: support query params
-  // app.get("/search", (req, res) => {
-  //   const query = undefined;
+  app.get("/image-thumbnail/:filename", (req, res) => {
+    const filename = decodeURIComponent(req.params.filename);
 
-  //   console.time("search");
-  //   search(query, (items) => {
-  //     console.timeEnd("search");
+    getOrInsert(
+      thumbnailCache,
+      filename,
+      (cb) => {
+        imageThumbnail(filename, { percentage: 10, responseType: "base64" })
+          .then((thumbnail) => {
+            cb(null, thumbnail);
+          })
+          .catch((err) => {
+            cb(err);
+          });
+      },
+      (err, result) => {
+        if (err) {
+          console.log(err);
+          res.status(500);
+          return;
+        }
 
-  //     console.time("t-sne");
+        const img = Buffer.from(result, "base64");
+        res.send(img);
+      }
+    );
+  });
 
-  //     const tsne = new tsnejs.tSNE(TSNE_OPTS);
-  //     const rawData = items.map((item) => item.preds.slice(0));
+  app.get("/image-medium/:filename", (req, res) => {
+    const filename = decodeURIComponent(req.params.filename);
 
-  //     tsne.initDataRaw(rawData);
+    getOrInsert(
+      mediumCache,
+      filename,
+      (cb) => {
+        imageThumbnail(filename, { percentage: 50, responseType: "base64" })
+          .then((thumbnail) => {
+            cb(null, thumbnail);
+          })
+          .catch((err) => {
+            cb(err);
+          });
+      },
+      (err, result) => {
+        if (err) {
+          console.log(err);
+          res.status(500);
+          return;
+        }
 
-  //     for (let i = 0; i < TSNE_ITERS; i++) {
-  //       console.log("t-sne " + i + "/" + TSNE_ITERS);
-  //       tsne.step();
-  //     }
+        const img = Buffer.from(result, "base64");
+        res.send(img);
+      }
+    );
+  });
 
-  //     let result = tsne.getSolution();
-  //     console.timeEnd("t-sne");
+  app.get("/image-full/:filename", (req, res) => {
+    const filename = decodeURIComponent(req.params.filename);
 
-  //     console.log({ result });
-  //   });
-  // });
+    fs.readFile(filename, (err, data) => {
+      if (err) {
+        console.log(err);
+        res.status(500);
+        return;
+      }
+
+      res.send(data);
+    });
+  });
 
   app.listen(4000);
 });
