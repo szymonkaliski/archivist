@@ -178,9 +178,16 @@ mobilenet.load().then((mobilenet) => {
     });
   }
 
+  let devCached;
+
   app.get("/search", (req, res) => {
     // TODO: support query params
     const query = undefined;
+
+    if (devCached) {
+      res.send(devCached);
+      return;
+    }
 
     searchAndPrepare(query, (err, data) => {
       if (err) {
@@ -188,6 +195,8 @@ mobilenet.load().then((mobilenet) => {
         res.status(500);
         return;
       }
+
+      devCached = data;
 
       res.send(data);
     });
