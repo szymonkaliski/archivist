@@ -1,15 +1,59 @@
-import React, { useState, useEffect } from "react";
-import { minBy, maxBy, range } from "lodash";
-import { Sprite, Stage } from "react-pixi-fiber";
-import { useWindowSize } from "@react-hook/window-size";
-import { Texture } from "pixi.js";
+import React, {
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+import {
+  Canvas,
+  ReactThreeFiber,
+  useFrame,
+  extend,
+  useThree,
+} from "@react-three/fiber";
+import { minBy, maxBy, range, last } from "lodash";
+import { NoToneMapping, NearestFilter, Texture, MOUSE } from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { useTexture } from "@react-three/drei";
 
-const SCALE = 0.01;
-const CANVAS_SIZE = 2000;
+extend({ OrbitControls });
 
-const RenderItem = ({ item, embeddingsSpan }) => {
-  const [texture, setTexture] = useState(null);
+const SCALE = 0.05;
+const CANVAS_SIZE = 10000;
 
+const Controls = () => {
+  const { camera, gl } = useThree();
+
+  return (
+    <orbitControls
+      enablePan
+      enableRotate={false}
+      enableZoom
+      args={[camera, gl.domElement]}
+      mouseButtons={{
+        LEFT: MOUSE.PAN,
+      }}
+    />
+  );
+};
+
+const DataTexture = ({ dataUrl }) => {
+  const map = useTexture(dataUrl);
+
+  return <meshBasicMaterial map={map} transparent={false} />;
+};
+
+const intersectRect = (r1, r2) => {
+  return !(
+    r2.x > r1.x + r1.w ||
+    r2.x + r2.w < r1.x ||
+    r2.y > r1.y + r1.h ||
+    r2.y + r2.h < r1.y
+  );
+};
+
+const RenderItem = ({ item, embeddingsSpan, position, viewport, zoom }) => {
   const w = item.width * SCALE;
   const h = item.height * SCALE;
 
@@ -18,35 +62,99 @@ const RenderItem = ({ item, embeddingsSpan }) => {
   const y =
     ((item.embedding[1] - embeddingsSpan.y) / embeddingsSpan.h) * CANVAS_SIZE;
 
-  useEffect(() => {
-    Texture.fromURL(`/api/image-thumbnail/${encodeURIComponent(item.img)}`)
-      .then((texture) => {
-        setTexture(texture);
-      })
-      .catch((e) => {
-        console.log("texture loading error", item, e);
-      });
-  }, [item.img]);
+  const vx = position.x;
+  const vy = position.y;
+  const vw = viewport.width / zoom;
+  const vh = viewport.height / zoom;
 
-  if (!texture) {
+  const isVisible = intersectRect(
+    { x: x - w / 2, y: y - h / 2, w, h },
+    { x: vx - vw / 2, y: vy - vh / 2, w: vw, h: vh }
+  );
+
+  if (!isVisible) {
     return null;
   }
 
-  return <Sprite texture={texture} x={x} y={y} width={w} height={h} />;
+  const encoded = encodeURIComponent(item.img);
+
+  const imgUrlThumbnail = `/api/image-thumbnail/${encoded}`;
+  const imgUrlMedium = `/api/image-medium/${encoded}`;
+  const imgUrlFull = `/api/image-full/${encoded}`;
+
+  let dataUrl = imgUrlThumbnail;
+
+  if (isVisible) {
+    if (zoom > 5) {
+      dataUrl = imgUrlMedium;
+    }
+
+    if (zoom > 15) {
+      dataUrl = imgUrlFull;
+    }
+  }
+
+  return (
+    <mesh position={[x, y, 0]}>
+      <planeBufferGeometry args={[w, h]} />
+
+      {isVisible ? (
+        <Suspense fallback={<meshBasicMaterial color={0xeeeeee} />}>
+          <DataTexture key={dataUrl} dataUrl={dataUrl} />
+        </Suspense>
+      ) : (
+        <meshBasicMaterial color={0xeeeeee} />
+      )}
+    </mesh>
+  );
+};
+
+let c = 0;
+
+const Wrapper = ({ items, embeddingsSpan }) => {
+  const [zoom, setZoom] = useState(1);
+  const [viewport, setViewport] = useState({ width: 1, height: 1 });
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  useFrame(({ camera, viewport }) => {
+    if (c++ % 16 === 0) {
+      setZoom(camera.zoom);
+      setPosition({ x: camera.position.x, y: camera.position.y });
+      setViewport({ width: viewport.width, height: viewport.height });
+    }
+  });
+
+  console.log(zoom, position);
+
+  return items.map((item) => (
+    <RenderItem
+      key={item.source + "-" + item.id}
+      item={item}
+      embeddingsSpan={embeddingsSpan}
+      zoom={zoom}
+      position={position}
+      viewport={viewport}
+    />
+  ));
 };
 
 const Render = ({ items, embeddingsSpan }) => {
-  // const [width, height] = useWindowSize();
-  const [width, height] = [CANVAS_SIZE, CANVAS_SIZE];
+  const onCreated = useCallback(({ gl, camera }) => {
+    gl.toneMapping = NoToneMapping;
+  }, []);
 
   return (
-    <Stage options={{ width, height, backgroundColor: 0xfafafa }}>
-      {items.map((item, i) => {
-        return (
-          <RenderItem key={i} item={item} embeddingsSpan={embeddingsSpan} />
-        );
-      })}
-    </Stage>
+    <Canvas
+      concurrent
+      orthographic
+      pixelRatio={window.devicePixelRatio}
+      onCreated={onCreated}
+      style={{ position: "fixed" }}
+    >
+      <Controls />
+
+      <Wrapper items={items} embeddingsSpan={embeddingsSpan} />
+    </Canvas>
   );
 };
 

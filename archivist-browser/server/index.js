@@ -151,8 +151,8 @@ mobilenet.load().then((mobilenet) => {
 
       const umap = new UMAP({
         nComponents: 2,
-        nEpochs: 200,
-        nNeighbors: 15,
+        nEpochs: 400,
+        nNeighbors: 10,
       });
 
       const rawData = items.map((item) => item.preds);
