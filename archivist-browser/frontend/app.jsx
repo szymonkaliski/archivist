@@ -16,6 +16,7 @@ import { minBy, maxBy, range, last } from "lodash";
 import { NoToneMapping, NearestFilter, Texture, MOUSE } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { useTexture } from "@react-three/drei";
+import { ErrorBoundary } from "react-error-boundary";
 
 extend({ OrbitControls });
 
@@ -72,20 +73,21 @@ const RenderItem = ({ item, embeddingsSpan, position, viewport, zoom }) => {
     { x: vx - vw / 2, y: vy - vh / 2, w: vw, h: vh }
   );
 
-  if (!isVisible) {
-    return null;
-  }
-
   const encoded = encodeURIComponent(item.img);
 
+  const imgUrlMicro = `/api/image-micro/${encoded}`;
   const imgUrlThumbnail = `/api/image-thumbnail/${encoded}`;
   const imgUrlMedium = `/api/image-medium/${encoded}`;
   const imgUrlFull = `/api/image-full/${encoded}`;
 
-  let dataUrl = imgUrlThumbnail;
+  let dataUrl = imgUrlMicro;
 
   if (isVisible) {
-    if (zoom > 5) {
+    if (zoom > 0.5) {
+      dataUrl = imgUrlThumbnail;
+    }
+
+    if (zoom > 10) {
       dataUrl = imgUrlMedium;
     }
 
@@ -99,9 +101,11 @@ const RenderItem = ({ item, embeddingsSpan, position, viewport, zoom }) => {
       <planeBufferGeometry args={[w, h]} />
 
       {isVisible ? (
-        <Suspense fallback={<meshBasicMaterial color={0xeeeeee} />}>
-          <DataTexture key={dataUrl} dataUrl={dataUrl} />
-        </Suspense>
+        <ErrorBoundary fallback={<meshBasicMaterial color={0xff0000} />}>
+          <Suspense fallback={<meshBasicMaterial color={0xeeeeee} />}>
+            <DataTexture key={dataUrl} dataUrl={dataUrl} />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
         <meshBasicMaterial color={0xeeeeee} />
       )}
@@ -124,7 +128,7 @@ const Wrapper = ({ items, embeddingsSpan }) => {
     }
   });
 
-  console.log(zoom, position);
+  console.log("zoom:", zoom, "position:", position.x, position.y);
 
   return items.map((item) => (
     <RenderItem

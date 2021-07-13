@@ -13,7 +13,10 @@ const tf = require("@tensorflow/tfjs-node");
 const { UMAP } = require("umap-js");
 
 const app = express();
+
 const activationCache = level("cache/activation");
+
+const microCache = level("cache/micro");
 const thumbnailCache = level("cache/thumbnail");
 const mediumCache = level("cache/medium");
 
@@ -192,7 +195,7 @@ mobilenet.load().then((mobilenet) => {
     searchAndPrepare(query, (err, data) => {
       if (err) {
         console.log(err);
-        res.status(500);
+        res.status(500).send(err);
         return;
       }
 
@@ -200,6 +203,34 @@ mobilenet.load().then((mobilenet) => {
 
       res.send(data);
     });
+  });
+
+  app.get("/image-micro/:filename", (req, res) => {
+    const filename = decodeURIComponent(req.params.filename);
+
+    getOrInsert(
+      microCache,
+      filename,
+      (cb) => {
+        imageThumbnail(filename, { percentage: 1, responseType: "base64" })
+          .then((thumbnail) => {
+            cb(null, thumbnail);
+          })
+          .catch((err) => {
+            cb(err);
+          });
+      },
+      (err, result) => {
+        if (err) {
+          console.log(err);
+          res.status(500).send(err);
+          return;
+        }
+
+        const img = Buffer.from(result, "base64");
+        res.send(img);
+      }
+    );
   });
 
   app.get("/image-thumbnail/:filename", (req, res) => {
@@ -220,7 +251,7 @@ mobilenet.load().then((mobilenet) => {
       (err, result) => {
         if (err) {
           console.log(err);
-          res.status(500);
+          res.status(500).send(err);
           return;
         }
 
@@ -248,7 +279,7 @@ mobilenet.load().then((mobilenet) => {
       (err, result) => {
         if (err) {
           console.log(err);
-          res.status(500);
+          res.status(500).send(err);
           return;
         }
 
@@ -264,7 +295,7 @@ mobilenet.load().then((mobilenet) => {
     fs.readFile(filename, (err, data) => {
       if (err) {
         console.log(err);
-        res.status(500);
+        res.status(500).send(err);
         return;
       }
 
