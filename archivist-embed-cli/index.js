@@ -96,9 +96,48 @@ const search = (query, cb) => {
   });
 };
 
+// TODO: cache this as well
+const processUMAP = (items, cb) => {
+  const umap = new UMAP({
+    nComponents: 2,
+    nEpochs: 400,
+    nNeighbors: 10,
+  });
+
+  const rawData = items.map((item) => item.preds);
+
+  const nEpochs = umap.initializeFit(rawData);
+
+  for (let i = 0; i < nEpochs; i++) {
+    console.log("umap " + i + "/" + nEpochs);
+    umap.step();
+  }
+
+  const embedding = umap.getEmbedding();
+
+  cb(
+    null,
+    items.map((d, i) => {
+      d.embedding = embedding[i];
+      return d;
+    })
+  );
+};
+
 console.time("search");
 search(undefined, (result) => {
   console.timeEnd("search");
 
-  console.log({ result });
+  console.time("umap");
+  processUMAP(result, (err, result) => {
+    console.timeEnd("umap");
+
+    result = result.map((d) => {
+      delete d.preds;
+      return d;
+    });
+
+    console.log(result);
+  });
 });
+
