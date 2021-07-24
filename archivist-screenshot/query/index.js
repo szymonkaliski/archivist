@@ -1,4 +1,7 @@
 const mdfind = require("mdfind");
+const path = require("path");
+
+const { THUMBS_PATH } = require("../consts");
 
 const first = (xs) => {
   if (!xs) {
@@ -36,8 +39,12 @@ module.exports = (options, text = "Screenshot", limit) => {
             .replace(" +0000", "")
             .replace(/-/g, "/");
 
+          const filename = path.basename(d.kMDItemPath);
+          const thumbImg = path.join(THUMBS_PATH, filename);
+
           return {
             img: d.kMDItemPath,
+            thumbImg,
             id: d.kMDItemPath,
             link: first(d.kMDItemWhereFroms),
             time,

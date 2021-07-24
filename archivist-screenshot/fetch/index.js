@@ -1,14 +1,9 @@
 const async = require("async");
-const envPaths = require("env-paths");
 const fs = require("fs");
-const mkdirp = require("mkdirp");
 const path = require("path");
 const sharp = require("sharp");
 
-const DATA_PATH = envPaths("archivist-screenshots").data;
-const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
-
-mkdirp(THUMBS_PATH);
+const { THUMBS_PATH } = require('../consts')
 
 const FORCE_RECREATE = false;
 const THUMB_SIZE = 400;
