@@ -76,7 +76,7 @@ const search = (query, cb) => {
         (item, cb) => {
           getActivationCached(item.thumbImg, mobilenet, (err, preds) => {
             if (err) {
-              console.log("Error for:", item.img, err);
+              console.log("error for:", item.img, err);
               cb(null);
             } else {
               item.preds = preds;
@@ -96,7 +96,7 @@ const search = (query, cb) => {
   });
 };
 
-// TODO: cache this as well
+// TODO: cache this as well?
 const processUMAP = (items, cb) => {
   const umap = new UMAP({
     nComponents: 2,
@@ -137,7 +137,7 @@ search(undefined, (result) => {
       return d;
     });
 
-    console.log(result);
+    console.log("------");
+    console.log(JSON.stringify(result, null, 2));
   });
 });
-
