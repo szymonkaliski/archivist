@@ -35,12 +35,14 @@ const getActivation = (file, mobilenet, cb) => {
     const image = fs.readFileSync(file);
     const decoded = tf.node.decodeImage(image, 3);
 
-    // this is black magic and I have no idea why it's necessary - but it works!
-    const tensor = tf.image
-      .resizeBilinear(decoded, [IMG_W, IMG_H])
-      .toFloat()
-      .div(255)
-      .expandDims();
+    // // this is black magic and I have no idea why it's necessary - but it works!
+    // const tensor = tf.image
+    //   .resizeBilinear(decoded, [IMG_W, IMG_H])
+    //   .toFloat()
+    //   .div(255)
+    //   .expandDims();
+
+    const tensor = decoded
 
     mobilenet
       .infer(tensor)
@@ -100,8 +102,8 @@ const search = (query, cb) => {
 const processUMAP = (items, cb) => {
   const umap = new UMAP({
     nComponents: 2,
-    nEpochs: 400,
-    nNeighbors: 10,
+    // nEpochs: 400,
+    nNeighbors: 30,
   });
 
   const rawData = items.map((item) => item.preds);
@@ -141,3 +143,4 @@ search(undefined, (result) => {
     console.log(JSON.stringify(result, null, 2));
   });
 });
+
