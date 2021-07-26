@@ -11,19 +11,20 @@
   "license": "MIT",
   "dependencies": {
     "async": "^3.2.0",
-    "better-sqlite3": "^6.0.1",
-    "env-paths": "^2.2.0",
-    "freeze-dry": "^0.2.4",
-    "is-reachable": "^4.0.0",
-    "jsdom": "^16.4.0",
-    "lodash": "^4.17.15",
-    "md5": "^2.2.1",
+    "better-sqlite3": "^7.4.3",
+    "env-paths": "^2.2.1",
+    "freeze-dry": "^0.2.5",
+    "is-reachable": "^5.0.0",
+    "jsdom": "^16.6.0",
+    "lodash": "^4.17.21",
+    "md5": "^2.3.0",
     "mkdirp": "^1.0.4",
-    "node-pinboard": "^1.0.0",
-    "puppeteer": "^3.0.1",
+    "node-pinboard": "^2.0.1",
+    "puppeteer": "^10.1.0",
+    "sharp": "^0.28.3",
     "wayback-machine": "^0.2.1"
   },
   "devDependencies": {
-    "browserify": "^16.5.1"
+    "browserify": "^17.0.0"
   }
 }

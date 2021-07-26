@@ -1,10 +1,11 @@
-const async = require("async");
 const Database = require("better-sqlite3");
-const Pinboard = require("node-pinboard");
+const async = require("async");
 const envPaths = require("env-paths");
 const fs = require("fs");
 const mkdirp = require("mkdirp");
 const path = require("path");
+const sharp = require("sharp");
+const { default: Pinboard } = require("node-pinboard");
 const { isString } = require("lodash");
 
 const fetcher = require("./fetcher");
@@ -12,9 +13,14 @@ const fetcher = require("./fetcher");
 const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const FROZEN_PATH = path.join(DATA_PATH, "frozen");
+const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 
 mkdirp(ASSETS_PATH);
 mkdirp(FROZEN_PATH);
+mkdirp(THUMBS_PATH);
+
+const FORCE_RECREATE_THUMBS = false;
+const THUMB_SIZE = 400;
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-links.json");
 
@@ -42,6 +48,38 @@ const processRemovedLinks = async (removedLinks) => {
         callback(null, item.hash);
       },
       (err, hashes) => resolve(hashes)
+    );
+  });
+};
+
+// TODO: remove thumbnails if original file doesn't exist anymore
+const createThumbnails = async (db) => {
+  const dbScreenshots = db.prepare("SELECT screenshot FROM data").all();
+
+  return new Promise((resolve) => {
+    async.eachLimit(
+      dbScreenshots,
+      10,
+      ({ screenshot: fileName }, next) => {
+        const inputPath = path.join(ASSETS_PATH, fileName);
+        const outputPath = path.join(THUMBS_PATH, fileName);
+
+        const alreadyExists = fs.existsSync(outputPath);
+        const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
+
+        if (shouldMakeThumbnail) {
+          sharp(inputPath)
+            .resize(THUMB_SIZE)
+            .toFile(outputPath, () => {
+              next();
+            });
+        } else {
+          next();
+        }
+      },
+      () => {
+        resolve();
+      }
     );
   });
 };
@@ -83,16 +121,9 @@ const run = async (options) => {
 
   const pinboard = new Pinboard(options.apiKey);
 
-  const crawlLinks = async () =>
-    new Promise((resolve, reject) => {
-      pinboard.all((err, links) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(links);
-        }
-      });
-    });
+  const crawlLinks = async () => {
+    return await pinboard.all();
+  };
 
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
@@ -177,6 +208,8 @@ const run = async (options) => {
   });
 
   insertLinks(finalLinks);
+
+  createThumbnails(db);
 
   console.log(
     "[archivist-pinboard]",

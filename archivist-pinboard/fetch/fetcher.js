@@ -23,6 +23,8 @@ const FREEZE_DRY_PATH = path.join(
 
 const FREEZE_DRY_SRC = fs.readFileSync(FREEZE_DRY_PATH, "utf-8");
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const savePageInternal = async (browser, link, url) => {
   const screenshotPath = path.join(ASSETS_PATH, `${md5(url)}.png`);
   const frozenPath = path.join(FROZEN_PATH, `${md5(url)}.html`);
@@ -86,7 +88,7 @@ const savePageInternal = async (browser, link, url) => {
 
     const frozen = await Promise.race([
       page.evaluate(async () => await window.freezeDry()),
-      page.waitFor(5000),
+      wait(5000),
     ]);
 
     fs.writeFileSync(frozenPath, frozen, "utf-8");

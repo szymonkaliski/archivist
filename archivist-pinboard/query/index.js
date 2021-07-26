@@ -5,6 +5,7 @@ const path = require("path");
 const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const FROZEN_PATH = path.join(DATA_PATH, "frozen");
+const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 
 const query = async (_, text, limit) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
@@ -37,6 +38,8 @@ const query = async (_, text, limit) => {
 
   return search.map((d) => ({
     img: path.join(ASSETS_PATH, d.screenshot),
+    thumbImg: path.join(THUMBS_PATH, d.screenshot),
+
     link: d.href,
     id: d.hash,
     time: d.time,
