@@ -3,11 +3,12 @@ const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
 
-const { THUMBS_PATH } = require('../consts')
+const { THUMBS_PATH } = require("../consts");
 
-const FORCE_RECREATE = false;
+const FORCE_RECREATE_THUMBS = false;
 const THUMB_SIZE = 400;
 
+// TODO: remove thumbnails if original file doesn't exist anymore
 module.exports = (options) => {
   const files = fs
     .readdirSync(options.directory)
@@ -22,7 +23,7 @@ module.exports = (options) => {
         const outputPath = path.join(THUMBS_PATH, fileName);
 
         const alreadyExists = fs.existsSync(outputPath);
-        const shouldMakeThumbnail = FORCE_RECREATE || !alreadyExists;
+        const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
         if (shouldMakeThumbnail) {
           sharp(inputPath)
