@@ -35,26 +35,28 @@ const query = async (_, text, limit) => {
       .all();
   }
 
-  const thumbname = path.parse(d.filename).name + ".jpg";
+  return search.map((d) => {
+    const thumbname = path.parse(d.filename).name + ".jpg";
 
-  return search.map((d) => ({
-    img: path.join(ASSETS_PATH, d.filename),
-    thumbImg: path.join(THUMBS_PATH, thumbname),
+    return {
+      img: path.join(ASSETS_PATH, d.filename),
+      thumbImg: path.join(THUMBS_PATH, thumbname),
 
-    link: d.link,
-    id: d.pinid,
-    time: d.createdat || d.crawldate,
+      link: d.link,
+      id: d.pinid,
+      time: d.createdat || d.crawldate,
 
-    width: d.width,
-    height: d.height,
+      width: d.width,
+      height: d.height,
 
-    meta: {
-      source: "pinterest",
-      title: d.title,
-      note: d.text,
-      tags: [d.board],
-    },
-  }));
+      meta: {
+        source: "pinterest",
+        title: d.title,
+        note: d.text,
+        tags: [d.board],
+      },
+    };
+  });
 };
 
 module.exports = query;

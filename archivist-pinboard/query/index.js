@@ -36,27 +36,29 @@ const query = async (_, text, limit) => {
       .all();
   }
 
-  const thumbname = path.parse(d.screenshot).name + ".jpg";
+  return search.map((d) => {
+    const thumbname = path.parse(d.screenshot).name + ".jpg";
 
-  return search.map((d) => ({
-    img: path.join(ASSETS_PATH, d.screenshot),
-    thumbImg: path.join(THUMBS_PATH, thumbname),
+    return {
+      img: path.join(ASSETS_PATH, d.screenshot),
+      thumbImg: path.join(THUMBS_PATH, thumbname),
 
-    link: d.href,
-    id: d.hash,
-    time: d.time,
+      link: d.href,
+      id: d.hash,
+      time: d.time,
 
-    width: 1920,
-    height: 1080,
+      width: 1920,
+      height: 1080,
 
-    meta: {
-      source: "pinboard",
-      title: d.description,
-      note: d.extended,
-      tags: d.tags.split(" "),
-      static: d.frozen ? path.join(FROZEN_PATH, d.frozen) : undefined,
-    },
-  }));
+      meta: {
+        source: "pinboard",
+        title: d.description,
+        note: d.extended,
+        tags: d.tags.split(" "),
+        static: d.frozen ? path.join(FROZEN_PATH, d.frozen) : undefined,
+      },
+    };
+  });
 };
 
 module.exports = query;
