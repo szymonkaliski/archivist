@@ -36,9 +36,11 @@ const query = async (_, text, limit) => {
       .all();
   }
 
+  const thumbname = path.parse(d.screenshot).name + ".jpg";
+
   return search.map((d) => ({
     img: path.join(ASSETS_PATH, d.screenshot),
-    thumbImg: path.join(THUMBS_PATH, d.screenshot),
+    thumbImg: path.join(THUMBS_PATH, thumbname),
 
     link: d.href,
     id: d.hash,

@@ -4,6 +4,7 @@ const path = require("path");
 
 const DATA_PATH = envPaths("archivist-pinterest").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
+const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 
 const query = async (_, text, limit) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
@@ -34,8 +35,12 @@ const query = async (_, text, limit) => {
       .all();
   }
 
+  const thumbname = path.parse(d.filename).name + ".jpg";
+
   return search.map((d) => ({
     img: path.join(ASSETS_PATH, d.filename),
+    thumbImg: path.join(THUMBS_PATH, thumbname),
+
     link: d.link,
     id: d.pinid,
     time: d.createdat || d.crawldate,

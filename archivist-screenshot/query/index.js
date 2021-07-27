@@ -40,7 +40,8 @@ module.exports = (options, text = "Screenshot", limit) => {
             .replace(/-/g, "/");
 
           const filename = path.basename(d.kMDItemPath);
-          const thumbImg = path.join(THUMBS_PATH, filename);
+          const thumbname = path.parse(filename).name + ".jpg";
+          const thumbImg = path.join(THUMBS_PATH, thumbname);
 
           return {
             img: d.kMDItemPath,

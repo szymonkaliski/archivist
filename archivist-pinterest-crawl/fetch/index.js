@@ -3,15 +3,28 @@ const async = require("async");
 const dateFormat = require("dateformat");
 const envPaths = require("env-paths");
 const fs = require("fs");
+const gifFrames = require("gif-frames");
 const mkdirp = require("mkdirp");
+const mktemp = require("mktemp");
 const path = require("path");
+const sharp = require("sharp");
 const { chain } = require("lodash");
 
 const { crawlBoards, crawlPinMetadata } = require("./crawler");
 const fetcher = require("./fetcher");
 
 const DATA_PATH = envPaths("archivist-pinterest").data;
+const ASSETS_PATH = path.join(DATA_PATH, "assets");
+const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
+const TMP_PATH = "/tmp/archivist-pinterest-crawl";
+
 mkdirp(DATA_PATH);
+mkdirp(THUMBS_PATH);
+mkdirp(TMP_PATH);
+mkdirp(ASSETS_PATH);
+
+const FORCE_RECREATE_THUMBS = false;
+const THUMB_SIZE = 400;
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-pins.json");
 
@@ -69,6 +82,76 @@ const SETUP_STATEMENTS = [
     END
   `,
 ];
+
+const prepareFileForThumbnailing = async (file) => {
+  if (file.endsWith("gif")) {
+    return new Promise((resolve, reject) => {
+      const output = mktemp.createFileSync(`${TMP_PATH}/XXXXXX.jpg`);
+
+      gifFrames({
+        url: file,
+        frames: 0,
+        culmative: true,
+      })
+        .then((frameData) => {
+          frameData[0]
+            .getImage()
+            .pipe(fs.createWriteStream(output))
+            .on("finish", () => resolve(output));
+        })
+        .catch((e) => {
+          reject(e);
+        });
+    });
+  } else {
+    return Promise.resolve(file);
+  }
+};
+
+// TODO: remove thumbnails if original file doesn't exist anymore
+const createThumbnails = async (db) => {
+  const dbFiles = db.prepare("SELECT filename FROM data").all();
+
+  return new Promise((resolve) => {
+    async.eachLimit(
+      dbFiles,
+      10,
+      ({ filename }, next) => {
+        prepareFileForThumbnailing(path.join(ASSETS_PATH, filename))
+          .then((inputPath) => {
+            const outputName = path.parse(filename).name + ".jpg";
+            const outputPath = path.join(THUMBS_PATH, outputName);
+
+            const alreadyExists = fs.existsSync(outputPath);
+            const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
+
+            if (shouldMakeThumbnail) {
+              console.log(
+                "[archivist-pinterest-crawl]",
+                `making thumbnail for ${inputPath} -> ${outputPath}`
+              );
+
+              sharp(inputPath)
+                .resize(THUMB_SIZE)
+                .jpeg()
+                .toFile(outputPath, () => {
+                  next();
+                });
+            } else {
+              next();
+            }
+          })
+          .catch((e) => {
+            console.log("[archivist-pinterest-crawl]", `error: ${e}`);
+            next();
+          });
+      },
+      () => {
+        resolve();
+      }
+    );
+  });
+};
 
 const run = async (options) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
@@ -156,6 +239,8 @@ const run = async (options) => {
   });
 
   insertPins(finalPins);
+
+  createThumbnails(db);
 
   console.log(
     "[archivist-pinterest-crawl]",

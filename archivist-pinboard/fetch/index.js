@@ -60,16 +60,24 @@ const createThumbnails = async (db) => {
     async.eachLimit(
       dbScreenshots,
       10,
-      ({ screenshot: fileName }, next) => {
-        const inputPath = path.join(ASSETS_PATH, fileName);
-        const outputPath = path.join(THUMBS_PATH, fileName);
+      ({ screenshot: filename }, next) => {
+        const inputPath = path.join(ASSETS_PATH, filename);
+
+        const outputName = path.parse(filename).name + ".jpg";
+        const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
         const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
         if (shouldMakeThumbnail) {
+          console.log(
+            "[archivist-pinboard]",
+            `making thumbnail for ${inputPath} -> ${outputPath}`
+          );
+
           sharp(inputPath)
             .resize(THUMB_SIZE)
+            .jpeg()
             .toFile(outputPath, () => {
               next();
             });

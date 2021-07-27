@@ -18,16 +18,23 @@ module.exports = (options) => {
     async.eachLimit(
       files,
       10,
-      (fileName, next) => {
-        const inputPath = path.join(options.directory, fileName);
-        const outputPath = path.join(THUMBS_PATH, fileName);
+      (filename, next) => {
+        const inputPath = path.join(options.directory, filename);
+        const outputName = path.parse(filename).name + ".jpg";
+        const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
         const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
         if (shouldMakeThumbnail) {
+          console.log(
+            "[archivist-screenshot]",
+            `making thumbnail for ${inputPath} -> ${outputPath}`
+          );
+
           sharp(inputPath)
             .resize(THUMB_SIZE)
+            .jpeg()
             .toFile(outputPath, () => {
               next();
             });
