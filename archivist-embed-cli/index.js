@@ -33,16 +33,7 @@ const getOrInsert = (key, prepareCb, cb) => {
 const getActivation = (file, mobilenet, cb) => {
   try {
     const image = fs.readFileSync(file);
-    const decoded = tf.node.decodeImage(image, 3);
-
-    // // this is black magic and I have no idea why it's necessary - but it works!
-    // const tensor = tf.image
-    //   .resizeBilinear(decoded, [IMG_W, IMG_H])
-    //   .toFloat()
-    //   .div(255)
-    //   .expandDims();
-
-    const tensor = decoded
+    const tensor = tf.node.decodeImage(image, 3);
 
     mobilenet
       .infer(tensor)
