@@ -9,9 +9,6 @@ const { UMAP } = require("umap-js");
 
 const cache = level("cache");
 
-const IMG_W = 224;
-const IMG_H = 224;
-
 const getOrInsert = (key, prepareCb, cb) => {
   cache.get(key, (err, cached) => {
     if (err) {
@@ -36,7 +33,7 @@ const getActivation = (file, mobilenet, cb) => {
     const tensor = tf.node.decodeImage(image, 3);
 
     mobilenet
-      .infer(tensor)
+      .infer(tensor, true)
       .data()
       .then((result) => {
         cb(null, Array.from(result));
@@ -134,4 +131,3 @@ search(undefined, (result) => {
     console.log(JSON.stringify(result, null, 2));
   });
 });
-
