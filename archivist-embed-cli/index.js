@@ -10,6 +10,8 @@ const { getPaletteFromURL } = require("color-thief-node");
 
 const cache = level("cache");
 
+const identity = (x) => x;
+
 const getOrInsert = (key, prepareCb, cb) => {
   cache.get(key, (err, cached) => {
     if (err) {
@@ -50,7 +52,11 @@ const getActivation = (file, mobilenet, cb) => {
                 });
               })
               .catch((e) => {
-                cb(e);
+                cb(null, {
+                  embedding: Array.from(result),
+                  predictions,
+                  palette: [],
+                });
               });
           })
           .catch((e) => {
@@ -94,17 +100,12 @@ const search = (query, cb) => {
               item.embedding = d.embedding;
               item.predictions = d.predictions;
               item.palette = d.palette;
+
               cb(null, item);
             }
           });
         },
-        (err, results) => {
-          results = results.filter((x) => !!x && x.preds !== undefined);
-
-          if (cb) {
-            cb(results);
-          }
-        }
+        cb
       );
     });
   });
@@ -118,8 +119,9 @@ const processUMAP = (items, cb) => {
     nNeighbors: 30,
   });
 
-  const rawData = items.map((item) => item.embedding);
+  items = items.filter(identity);
 
+  const rawData = items.map((item) => item.embedding);
   const nEpochs = umap.initializeFit(rawData);
 
   for (let i = 0; i < nEpochs; i++) {
@@ -139,17 +141,22 @@ const processUMAP = (items, cb) => {
 };
 
 console.time("search");
-search(undefined, (result) => {
+search(undefined, (err, result) => {
   console.timeEnd("search");
+
+  if (err) {
+    console.log(err);
+    return;
+  }
 
   console.time("umap");
   processUMAP(result, (err, result) => {
     console.timeEnd("umap");
 
-    result = result.map((d) => {
-      delete d.preds;
-      return d;
-    });
+    if (err) {
+      console.log(err);
+      return;
+    }
 
     console.log("------");
     console.log(JSON.stringify(result, null, 2));
