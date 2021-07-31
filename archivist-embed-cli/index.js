@@ -6,6 +6,7 @@ const level = require("level");
 const mobilenet = require("@tensorflow-models/mobilenet");
 const tf = require("@tensorflow/tfjs-node");
 const { UMAP } = require("umap-js");
+const { getPaletteFromURL } = require("color-thief-node");
 
 const cache = level("cache");
 
@@ -32,11 +33,32 @@ const getActivation = (file, mobilenet, cb) => {
     const image = fs.readFileSync(file);
     const tensor = tf.node.decodeImage(image, 3);
 
+    // TODO: refactor!
     mobilenet
-      .infer(tensor, true)
-      .data()
-      .then((result) => {
-        cb(null, Array.from(result));
+      .classify(tensor)
+      .then((predictions) => {
+        mobilenet
+          .infer(tensor, true)
+          .data()
+          .then((result) => {
+            getPaletteFromURL(file)
+              .then((palette) => {
+                cb(null, {
+                  embedding: Array.from(result),
+                  predictions,
+                  palette,
+                });
+              })
+              .catch((e) => {
+                cb(e);
+              });
+          })
+          .catch((e) => {
+            cb(e);
+          });
+      })
+      .catch((e) => {
+        cb(e);
       });
   } catch (e) {
     cb(e);
@@ -64,12 +86,14 @@ const search = (query, cb) => {
       async.mapSeries(
         found.value().filter((d) => !!d.thumbImg),
         (item, cb) => {
-          getActivationCached(item.thumbImg, mobilenet, (err, preds) => {
+          getActivationCached(item.thumbImg, mobilenet, (err, d) => {
             if (err) {
               console.log("error for:", item.img, err);
               cb(null);
             } else {
-              item.preds = preds;
+              item.embedding = d.embedding;
+              item.predictions = d.predictions;
+              item.palette = d.palette;
               cb(null, item);
             }
           });
@@ -94,7 +118,7 @@ const processUMAP = (items, cb) => {
     nNeighbors: 30,
   });
 
-  const rawData = items.map((item) => item.preds);
+  const rawData = items.map((item) => item.embedding);
 
   const nEpochs = umap.initializeFit(rawData);
 
