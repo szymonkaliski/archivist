@@ -77,7 +77,7 @@ const createThumbnails = async (db) => {
 
           sharp(inputPath)
             .resize(THUMB_SIZE)
-            .jpeg()
+            .png()
             .toFile(outputPath, () => {
               next();
             });

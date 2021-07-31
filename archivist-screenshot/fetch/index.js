@@ -34,7 +34,7 @@ module.exports = (options) => {
 
           sharp(inputPath)
             .resize(THUMB_SIZE)
-            .jpeg()
+            .png()
             .toFile(outputPath, () => {
               next();
             });
