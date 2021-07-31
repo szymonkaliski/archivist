@@ -86,7 +86,7 @@ const SETUP_STATEMENTS = [
 const prepareFileForThumbnailing = async (file) => {
   if (file.endsWith("gif")) {
     return new Promise((resolve, reject) => {
-      const output = mktemp.createFileSync(`${TMP_PATH}/XXXXXX.jpg`);
+      const output = mktemp.createFileSync(`${TMP_PATH}/XXXXXX.png`);
 
       gifFrames({
         url: file,
@@ -119,7 +119,7 @@ const createThumbnails = async (db) => {
       ({ filename }, next) => {
         prepareFileForThumbnailing(path.join(ASSETS_PATH, filename))
           .then((inputPath) => {
-            const outputName = path.parse(filename).name + ".jpg";
+            const outputName = path.parse(filename).name + ".png";
             const outputPath = path.join(THUMBS_PATH, outputName);
 
             const alreadyExists = fs.existsSync(outputPath);

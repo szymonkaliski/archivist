@@ -20,7 +20,7 @@ module.exports = (options) => {
       10,
       (filename, next) => {
         const inputPath = path.join(options.directory, filename);
-        const outputName = path.parse(filename).name + ".jpg";
+        const outputName = path.parse(filename).name + ".png";
         const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);

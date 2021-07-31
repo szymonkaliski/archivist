@@ -37,7 +37,7 @@ const query = async (_, text, limit) => {
   }
 
   return search.map((d) => {
-    const thumbname = path.parse(d.screenshot).name + ".jpg";
+    const thumbname = path.parse(d.screenshot).name + ".png";
 
     return {
       img: path.join(ASSETS_PATH, d.screenshot),

@@ -63,7 +63,7 @@ const createThumbnails = async (db) => {
       ({ screenshot: filename }, next) => {
         const inputPath = path.join(ASSETS_PATH, filename);
 
-        const outputName = path.parse(filename).name + ".jpg";
+        const outputName = path.parse(filename).name + ".png";
         const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
