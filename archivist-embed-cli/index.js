@@ -115,8 +115,8 @@ const search = (query, cb) => {
 const processUMAP = (items, cb) => {
   const umap = new UMAP({
     nComponents: 2,
-    // nEpochs: 400,
-    nNeighbors: 30,
+    nNeighbors: 50,
+    minDist: 0.05
   });
 
   items = items.filter(identity);
