@@ -117,15 +117,15 @@ const createThumbnails = async (db) => {
       dbFiles,
       10,
       ({ filename }, next) => {
-        prepareFileForThumbnailing(path.join(ASSETS_PATH, filename))
-          .then((inputPath) => {
-            const outputName = path.parse(filename).name + ".png";
-            const outputPath = path.join(THUMBS_PATH, outputName);
+        const outputName = path.parse(filename).name + ".png";
+        const outputPath = path.join(THUMBS_PATH, outputName);
 
-            const alreadyExists = fs.existsSync(outputPath);
-            const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
+        const alreadyExists = fs.existsSync(outputPath);
+        const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
-            if (shouldMakeThumbnail) {
+        if (shouldMakeThumbnail) {
+          prepareFileForThumbnailing(path.join(ASSETS_PATH, filename))
+            .then((inputPath) => {
               console.log(
                 "[archivist-pinterest-crawl]",
                 `making thumbnail for ${inputPath} -> ${outputPath}`
@@ -137,14 +137,14 @@ const createThumbnails = async (db) => {
                 .toFile(outputPath, () => {
                   next();
                 });
-            } else {
+            })
+            .catch((e) => {
+              console.log("[archivist-pinterest-crawl]", `error: ${e}`);
               next();
-            }
-          })
-          .catch((e) => {
-            console.log("[archivist-pinterest-crawl]", `error: ${e}`);
-            next();
-          });
+            });
+        } else {
+          next();
+        }
       },
       () => {
         resolve();
