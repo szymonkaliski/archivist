@@ -24,7 +24,7 @@ require("./style.css");
 
 const { useEffect, useCallback, useRef, useReducer } = React;
 
-const SHELL = process.env.SHELL || "bash";
+const SHELL = process.env.SHELL || "zsh";
 const SPACER = 10;
 const THROTTLE_TIME = 100;
 

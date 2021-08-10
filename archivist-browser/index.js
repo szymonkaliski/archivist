@@ -1,26 +1,40 @@
+#!/usr/bin/env node
+
 const archivist = require("archivist-cli/lib");
 
 const async = require("async");
+const envPaths = require("env-paths");
 const fs = require("fs");
 const level = require("level");
+const mkdirp = require("mkdirp");
 const mobilenet = require("@tensorflow-models/mobilenet");
+const path = require("path");
 const tf = require("@tensorflow/tfjs-node");
+const yargs = require("yargs");
 const { UMAP } = require("umap-js");
 const { getPaletteFromURL } = require("color-thief-node");
+const { spawn } = require("child_process");
 
-const cache = level("cache");
+const SHELL = process.env.SHELL || "zsh";
+
+const DATA_PATH = envPaths("archivist-browser").data;
+const CACHE_PATH = path.join(DATA_PATH, "cache");
+const JSON_OUTPUT = path.join(DATA_PATH, "archivist-library.json");
+
+mkdirp(DATA_PATH);
+const CACHE = level(CACHE_PATH);
 
 const identity = (x) => x;
 
 const getOrInsert = (key, prepareCb, cb) => {
-  cache.get(key, (err, cached) => {
+  CACHE.get(key, (err, cached) => {
     if (err) {
       prepareCb((err, result) => {
         if (err) {
           return cb(err);
         }
 
-        cache.put(key, JSON.stringify(result), () => {
+        CACHE.put(key, JSON.stringify(result), () => {
           cb(null, result);
         });
       });
@@ -111,12 +125,11 @@ const search = (query, cb) => {
   });
 };
 
-// TODO: cache this as well?
 const processUMAP = (items, cb) => {
   const umap = new UMAP({
     nComponents: 2,
     nNeighbors: 50,
-    minDist: 0.05
+    minDist: 0.05,
   });
 
   items = items.filter(identity);
@@ -140,25 +153,61 @@ const processUMAP = (items, cb) => {
   );
 };
 
-console.time("search");
-search(undefined, (err, result) => {
-  console.timeEnd("search");
-
-  if (err) {
-    console.log(err);
-    return;
-  }
-
-  console.time("umap");
-  processUMAP(result, (err, result) => {
-    console.timeEnd("umap");
+const prepare = () => {
+  console.time("search");
+  search(undefined, (err, result) => {
+    console.timeEnd("search");
 
     if (err) {
       console.log(err);
       return;
     }
 
-    console.log("------");
-    console.log(JSON.stringify(result, null, 2));
+    console.time("umap");
+    processUMAP(result, (err, result) => {
+      console.timeEnd("umap");
+
+      if (err) {
+        console.log(err);
+        return;
+      }
+
+      const finalData = result.map((d) => ({
+        imgFull: d.img,
+        imgThumb: d.thumbImg,
+        position: d.embedding,
+        width: d.width,
+        height: d.height,
+        color: d.palette[0],
+        title: d.meta.title,
+        source: d.link,
+      }));
+
+      fs.writeFileSync(JSON_OUTPUT, JSON.stringify(finalData), "utf-8");
+      console.log("saved to: ", JSON_OUTPUT);
+    });
   });
-});
+};
+
+const args = yargs
+  .demandCommand()
+  .command("prepare", "prepare archivist browser data")
+  .command("browse", "run browser with viewer")
+  .demandCommand(1, "you need to provide a command")
+  .help().argv;
+
+const [command] = args._;
+
+if (command === "prepare") {
+  prepare();
+} else if (command === "browse") {
+  const browser = spawn("json-images-browser", [JSON_OUTPUT]);
+
+  browser.stdout.on("data", (data) => {
+    process.stdout.write(data.toString());
+  });
+
+  browser.stderr.on("data", (data) => {
+    process.stderr.write(data.toString());
+  });
+}
