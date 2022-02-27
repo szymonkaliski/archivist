@@ -6,7 +6,7 @@ const { chain, flatten } = require("lodash");
 
 const ROOT = "https://pinterest.com";
 
-const sleep = time => new Promise(resolve => setTimeout(resolve, time));
+const sleep = (time) => new Promise((resolve) => setTimeout(resolve, time));
 
 const crawlPin = async (browser, pinUrl) => {
   console.log("[archivist-pinterest-crawl]", "crawling pin", pinUrl);
@@ -19,7 +19,10 @@ const crawlPin = async (browser, pinUrl) => {
   const { link, title, date } = await page.evaluate(() => {
     const getLink = () => {
       const link = document.querySelector(".linkModuleActionButton");
-      return link ? link.href : undefined;
+      if (!link) {
+        return undefined;
+      }
+      return link.href || link.parentNode.href;
     };
 
     const getTitle = () => {
@@ -33,8 +36,19 @@ const crawlPin = async (browser, pinUrl) => {
       try {
         date = Object.values(
           JSON.parse(document.getElementById("initial-state").innerText).pins
-        ).map(p => p.created_at)[0];
+        ).map((p) => p.created_at)[0];
       } catch (e) {}
+
+      // new format?
+      if (!date) {
+        try {
+          const jsonString = document.getElementById("__PWS_DATA__").innerText;
+          const json = JSON.parse(jsonString);
+          const pins = json.props.initialReduxState.pins;
+          const pin = Object.values(pins)[0];
+          date = pin.created_at;
+        } catch (e) {}
+      }
 
       return date;
     };
@@ -42,10 +56,10 @@ const crawlPin = async (browser, pinUrl) => {
     const getData = () => ({
       link: getLink(),
       title: getTitle(),
-      date: getDate()
+      date: getDate(),
     });
 
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       const data = getData();
 
       if (data.link || data.title || data.date) {
@@ -74,7 +88,7 @@ const crawlBoard = async (page, boardUrl) => {
   // scroll down to bottom (hopefully)
   const scrollResult = await page.evaluate(
     () =>
-      new Promise(resolve => {
+      new Promise((resolve) => {
         let lastScrollPosition = 0;
         const allPins = {};
 
@@ -83,7 +97,7 @@ const crawlBoard = async (page, boardUrl) => {
 
           setTimeout(() => {
             Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach(
-              pin => {
+              (pin) => {
                 const a = pin.querySelector("a");
                 const img = pin.querySelector("img");
 
@@ -117,7 +131,7 @@ const crawlBoard = async (page, boardUrl) => {
       })
   );
 
-  return scrollResult.map(pin => {
+  return scrollResult.map((pin) => {
     return {
       ...pin,
       biggestSrc: chain(pin.srcset)
@@ -126,7 +140,7 @@ const crawlBoard = async (page, boardUrl) => {
         .trim()
         .split(" ")
         .first()
-        .value()
+        .value(),
     };
   });
 };
@@ -137,9 +151,11 @@ const crawlProfile = async (page, profileUrl) => {
   await page.goto(profileUrl, { waitUntil: "networkidle2" });
 
   const boards = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll("[draggable=true]")).map(el => {
-      return el.querySelector("a").href;
-    });
+    return Array.from(document.querySelectorAll("[draggable=true]")).map(
+      (el) => {
+        return el.querySelector("a").href;
+      }
+    );
   });
 
   return boards;
@@ -158,8 +174,8 @@ const loginWithCreds = async (page, email, password) => {
   await page.waitForNavigation();
 };
 
-const loginWithCookiesFromChrome = async page =>
-  new Promise(resolve => {
+const loginWithCookiesFromChrome = async (page) =>
+  new Promise((resolve) => {
     chrome.getCookies(ROOT, "puppeteer", (err, cookies) => {
       page.setCookie(...cookies).then(() => {
         page.goto(ROOT, { waitUntil: "networkidle2" }).then(() => {
@@ -169,7 +185,7 @@ const loginWithCookiesFromChrome = async page =>
     });
   });
 
-const createBrowser = async options => {
+const createBrowser = async (options) => {
   const headless = true;
   const browser = await puppeteer.launch({ headless });
 
@@ -189,16 +205,19 @@ const createBrowser = async options => {
   return { browser, page };
 };
 
-const crawlBoards = async options => {
+const crawlBoards = async (options) => {
   const { browser, page } = await createBrowser(options);
 
-  const boards = await crawlProfile(page, ROOT + "/" + options.profile + "/boards");
+  const boards = await crawlProfile(
+    page,
+    ROOT + "/" + options.profile + "/boards"
+  );
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     async.mapSeries(
       boards,
       (board, callback) =>
-        crawlBoard(page, board).then(pins => {
+        crawlBoard(page, board).then((pins) => {
           console.log(
             "[archivist-pinterest-crawl]",
             "board pins:",
@@ -208,13 +227,9 @@ const crawlBoards = async options => {
 
           callback(
             null,
-            pins.map(pin => ({
+            pins.map((pin) => ({
               ...pin,
-              board: chain(board)
-                .split("/")
-                .takeRight(2)
-                .first()
-                .value()
+              board: chain(board).split("/").takeRight(2).first().value(),
             }))
           );
         }),
@@ -230,7 +245,7 @@ const crawlBoards = async options => {
 const crawlPinMetadata = async (options, pins) => {
   const { browser } = await createBrowser(options);
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     async.mapLimit(
       pins,
       4,

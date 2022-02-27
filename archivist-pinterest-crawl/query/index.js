@@ -42,7 +42,7 @@ const query = async (_, text, limit) => {
       img: path.join(ASSETS_PATH, d.filename),
       thumbImg: path.join(THUMBS_PATH, thumbname),
 
-      link: d.link,
+      link: d.link || d.pinurl,
       id: d.pinid,
       time: d.createdat || d.crawldate,
 
