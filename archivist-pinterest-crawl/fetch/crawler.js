@@ -14,7 +14,12 @@ const crawlPin = async (browser, pinUrl) => {
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
 
-  await page.goto(pinUrl, { waitUntil: "networkidle2" });
+  try {
+    await page.goto(pinUrl, { waitUntil: "networkidle2" });
+  } catch (e) {
+    console.log("[archivist-pinterest-crawl]", "error when going to", pinUrl);
+    console.log(e);
+  }
 
   const { link, title, date } = await page.evaluate(() => {
     const getLink = () => {
