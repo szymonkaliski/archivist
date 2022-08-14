@@ -170,6 +170,7 @@ const loginWithCreds = async (page, email, password) => {
   await page.goto(ROOT, { waitUntil: "networkidle2" });
   await page.click("[data-test-id=simple-login-button] > button");
 
+  await sleep(2000);
   await page.type("#email", email);
   await sleep(2000);
   await page.type("#password", password);
