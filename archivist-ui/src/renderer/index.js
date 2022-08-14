@@ -32,7 +32,9 @@ const USE_MASONRY = false;
 const USE_GRID = true;
 
 // running archivist in an interactive shell to support stuff like nvm
-const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
+const WHICH_ARCHIVIST = spawnSync(SHELL, ["-c", "which archivist"]);
+const ARCHIVIST_BIN = WHICH_ARCHIVIST.stdout.toString().trim();
+const HAS_ARCHIVIST = WHICH_ARCHIVIST.status === 0;
 
 const shorten = (text, length) => {
   if (text.length < length) {
@@ -43,15 +45,12 @@ const shorten = (text, length) => {
 };
 
 const executeCLI = async (command, args) => {
-  return new Promise((resolve, reject) => {
-    // running archivist in an interactive shell to support stuff like nvm
-    const cmdArgs = [
-      "-i",
-      "-c",
-      ["archivist", command, args, "--json"].filter(identity).join(" "),
-    ];
+  return new Promise((resolve) => {
+    const cmdArgs = [command, ...args, "--json"].filter(identity);
+    console.log("running: " + ARCHIVIST_BIN, cmdArgs);
 
-    const process = spawn(SHELL, cmdArgs);
+    console.time("process");
+    const process = spawn(ARCHIVIST_BIN, cmdArgs);
     let result = "";
 
     process.stdout.on("data", (data) => {
@@ -59,14 +58,13 @@ const executeCLI = async (command, args) => {
     });
 
     process.stderr.on("data", (data) => {
-      // we can have stderr AND data at the same time, this shouldn't reject the results completely...
+      console.log("execute CLI error", data.toString());
       // reject(data);
     });
 
     process.on("exit", () => {
-      // sometimes shell leaves control sequences...
-      const clean = result.replace(/^.*\[/, "[");
-      resolve(JSON.parse(clean));
+      console.timeEnd("process");
+      resolve(JSON.parse(result));
     });
   });
 };
@@ -142,46 +140,46 @@ const HoverInfo = ({ ...props }) => (
   </div>
 );
 
-const createMasonryCellRenderer = ({
-  data,
-  width,
-  cache,
-  setHoveredId,
-  hoveredId,
-  setSearchText,
-}) => ({ index, key, parent, style }) => {
-  const columnWidth = calcColumnWidth({ width }) - SPACER;
-  const datum = data[index] || {};
-  const ratio = datum.height / datum.width;
+const createMasonryCellRenderer =
+  ({ data, width, cache, setHoveredId, hoveredId, setSearchText }) =>
+  ({ index, key, parent, style }) => {
+    const columnWidth = calcColumnWidth({ width }) - SPACER;
+    const datum = data[index] || {};
+    const ratio = datum.height / datum.width;
 
-  return (
-    <CellMeasurer cache={cache.current} index={index} key={key} parent={parent}>
-      <div
-        style={style}
-        className="h-100"
-        onMouseEnter={() => setHoveredId(datum.id)}
-        onMouseLeave={() => setHoveredId(null)}
+    return (
+      <CellMeasurer
+        cache={cache.current}
+        index={index}
+        key={key}
+        parent={parent}
       >
         <div
-          className="h-100 relative"
-          style={{
-            height: ratio * columnWidth,
-            width: columnWidth,
-            backgroundImage: `url("file:${datum.img}")`,
-            backgroundSize: "contain",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "center",
-            transform: "translateZ(0)",
-          }}
+          style={style}
+          className="h-100"
+          onMouseEnter={() => setHoveredId(datum.id)}
+          onMouseLeave={() => setHoveredId(null)}
         >
-          {hoveredId === datum.id && (
-            <HoverInfo setSearchText={setSearchText} {...datum} />
-          )}
+          <div
+            className="h-100 relative"
+            style={{
+              height: ratio * columnWidth,
+              width: columnWidth,
+              backgroundImage: `url("file:${datum.img}")`,
+              backgroundSize: "contain",
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "center",
+              transform: "translateZ(0)",
+            }}
+          >
+            {hoveredId === datum.id && (
+              <HoverInfo setSearchText={setSearchText} {...datum} />
+            )}
+          </div>
         </div>
-      </div>
-    </CellMeasurer>
-  );
-};
+      </CellMeasurer>
+    );
+  };
 
 const SearchOverlay = React.forwardRef(
   ({ searchText, setSearchText, setIsSearching }, ref) => (
@@ -207,45 +205,42 @@ const SearchOverlay = React.forwardRef(
   )
 );
 
-const createGridCellRenderer = ({
-  data,
-  setHoveredId,
-  hoveredId,
-  setSearchText,
-  columnCount,
-}) => ({ columnIndex, rowIndex, key, parent, style }) => {
-  const index = rowIndex * columnCount + columnIndex;
-  const datum = data[index];
+const createGridCellRenderer =
+  ({ data, setHoveredId, hoveredId, setSearchText, columnCount }) =>
+  ({ columnIndex, rowIndex, key, style }) => {
+    const index = rowIndex * columnCount + columnIndex;
+    const datum = data[index];
 
-  if (!datum) {
-    return null;
-  }
+    if (!datum) {
+      return null;
+    }
 
-  return (
-    <div
-      style={{ ...style, padding: 1 }}
-      className="h-100"
-      onMouseEnter={() => setHoveredId(datum.id)}
-      onMouseLeave={() => setHoveredId(null)}
-    >
+    return (
       <div
-        className="h-100 relative bg-gray"
-        style={{
-          backgroundImage: `url("file:${datum.img}")`,
-          backgroundSize: "contain",
-          // backgroundSize: "cover",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "center",
-          transform: "translateZ(0)",
-        }}
+        key={key}
+        style={{ ...style, padding: 1 }}
+        className="h-100"
+        onMouseEnter={() => setHoveredId(datum.id)}
+        onMouseLeave={() => setHoveredId(null)}
       >
-        {hoveredId === datum.id && (
-          <HoverInfo setSearchText={setSearchText} {...datum} />
-        )}
+        <div
+          className="h-100 relative bg-gray"
+          style={{
+            backgroundImage: `url("file:${datum.img}")`,
+            backgroundSize: "contain",
+            // backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center",
+            transform: "translateZ(0)",
+          }}
+        >
+          {hoveredId === datum.id && (
+            <HoverInfo setSearchText={setSearchText} {...datum} />
+          )}
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
 const GridWrapper = ({
   data,
@@ -323,7 +318,7 @@ const App = () => {
 
   useHotkeys(
     "/",
-    (e) => {
+    () => {
       if (!state.isSearching) {
         // otherwise `/` ends up in text input
         setTimeout(() => {
@@ -370,6 +365,10 @@ const App = () => {
   const isBooting = state.isBooting;
 
   useEffect(() => {
+    if (!HAS_ARCHIVIST) {
+      return;
+    }
+
     lastEntry.current = throttledSearchText;
 
     console.time("execute");
@@ -377,10 +376,10 @@ const App = () => {
     executeCLI(
       "search",
       throttledSearchText && throttledSearchText.length >= 1
-        ? `"${throttledSearchText}"`
+        ? [`"${throttledSearchText}"`]
         : isBooting // start by querying just a couple of items for faster perceived start
-        ? "--limit 10"
-        : undefined
+        ? ["--limit", "10"]
+        : []
     )
       .then((data) => {
         if (lastEntry.current !== throttledSearchText) {
