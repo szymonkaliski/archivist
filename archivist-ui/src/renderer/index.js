@@ -32,9 +32,7 @@ const USE_MASONRY = false;
 const USE_GRID = true;
 
 // running archivist in an interactive shell to support stuff like nvm
-const WHICH_ARCHIVIST = spawnSync(SHELL, ["-c", "which archivist"]);
-const ARCHIVIST_BIN = WHICH_ARCHIVIST.stdout.toString().trim();
-const HAS_ARCHIVIST = WHICH_ARCHIVIST.status === 0;
+const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
 
 const shorten = (text, length) => {
   if (text.length < length) {
@@ -46,11 +44,17 @@ const shorten = (text, length) => {
 
 const executeCLI = async (command, args) => {
   return new Promise((resolve) => {
-    const cmdArgs = [command, ...args, "--json"].filter(identity);
-    console.log("running: " + ARCHIVIST_BIN, cmdArgs);
+    // running archivist in an interactive shell to support stuff like nvm
+    const cmdArgs = [
+      "-i",
+      "-c",
+      ["archivist", command, ...args, "--json"].filter(identity).join(" "),
+    ];
 
-    console.time("process");
-    const process = spawn(ARCHIVIST_BIN, cmdArgs);
+    console.time("shell");
+    console.log(SHELL, cmdArgs);
+
+    const process = spawn(SHELL, cmdArgs);
     let result = "";
 
     process.stdout.on("data", (data) => {
@@ -58,13 +62,14 @@ const executeCLI = async (command, args) => {
     });
 
     process.stderr.on("data", (data) => {
-      console.log("execute CLI error", data.toString());
-      // reject(data);
+      console.error(data.toString());
     });
 
     process.on("exit", () => {
-      console.timeEnd("process");
-      resolve(JSON.parse(result));
+      console.timeEnd("shell");
+      // sometimes shell leaves control sequences...
+      const clean = result.replace(/^.*\[/, "[");
+      resolve(JSON.parse(clean));
     });
   });
 };
@@ -365,10 +370,6 @@ const App = () => {
   const isBooting = state.isBooting;
 
   useEffect(() => {
-    if (!HAS_ARCHIVIST) {
-      return;
-    }
-
     lastEntry.current = throttledSearchText;
 
     console.time("execute");
