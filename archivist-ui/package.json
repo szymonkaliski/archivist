@@ -1,50 +1,53 @@
 {
   "name": "archivist-ui",
-  "version": "1.1.0",
-  "description": "ui for archivist-cli",
-  "scripts": {
-    "dev": "electron-webpack dev",
-    "compile": "electron-webpack",
-    "dist": "npm run compile && electron-builder"
-  },
-  "build": {
-    "appId": "com.szymonkaliski.archivist-ui",
-    "productName": "Archivist",
-    "mac": {
-      "icon": "./assets/Archivist.icns"
-    }
-  },
-  "electronWebpack": {
-    "title": "Archivist",
-    "whiteListedModules": [
-      "use-debounce",
-      "use-throttle",
-      "react-hotkeys-hook"
-    ]
-  },
-  "keywords": [],
-  "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
-  "license": "MIT",
-  "devDependencies": {
-    "@babel/preset-react": "^7.12.10",
-    "css-loader": "^5.0.1",
-    "electron": "^11.1.0",
-    "electron-builder": "^22.9.1",
-    "electron-webpack": "^2.8.2",
-    "webpack": "^4.44.2"
-  },
+  "version": "0.1.0",
+  "private": true,
   "dependencies": {
-    "dateformat": "^4.3.1",
-    "immer": "^8.0.0",
-    "lodash": "^4.17.20",
-    "react": "17.0.1",
-    "react-dom": "17.0.1",
-    "react-hotkeys-hook": "^2.4.0",
+    "@tauri-apps/api": "^1.0.2",
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "dateformat": "^5.0.3",
+    "immer": "^9.0.15",
+    "lodash": "^4.17.21",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hotkeys-hook": "^3.4.7",
+    "react-scripts": "5.0.1",
     "react-virtualized": "^9.22.3",
-    "source-map-support": "^0.5.19",
     "strip": "^3.0.0",
     "tachyons": "^4.12.0",
-    "use-debounce": "^5.2.0",
-    "use-throttle": "0.0.3"
+    "use-debounce": "^8.0.3",
+    "use-throttle": "^0.0.3",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "cross-env BROWSER=none react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "tauri": "tauri"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.0.5",
+    "cross-env": "^7.0.3"
   }
 }

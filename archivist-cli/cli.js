@@ -43,7 +43,8 @@ if (TYPE === "config") {
 } else if (TYPE === "search" || TYPE === "query") {
   search(args._[1], args.limit).then((result) => {
     if (args.json) {
-      console.log(JSON.stringify(result.value(), null, 2));
+      // console.log(JSON.stringify(result.value(), null, 2));
+      console.log(JSON.stringify(result.value()));
     } else {
       result.forEach((d) => console.log(JSON.stringify(d))).value();
     }

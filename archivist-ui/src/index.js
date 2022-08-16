@@ -1,46 +1,40 @@
-const React = require("react");
-const ReactDOM = require("react-dom");
-const dateFormat = require("dateformat");
-const strip = require("strip");
-const { chain, identity } = require("lodash");
-const { produce } = require("immer");
-const { shell, clipboard } = require("electron");
-const { spawn, spawnSync } = require("child_process");
-const { useThrottle } = require("use-throttle");
-const { useHotkeys } = require("react-hotkeys-hook");
+import { Command, open } from "@tauri-apps/api/shell";
+import { convertFileSrc } from "@tauri-apps/api/tauri";
+import { writeText } from "@tauri-apps/api/clipboard";
+import dateFormat from "dateformat";
 
-const {
-  AutoSizer,
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useReducer,
+} from "react";
+import ReactDOM from "react-dom/client";
+import strip from "strip";
+import { chain, identity } from "lodash";
+import { produce } from "immer";
+import { useThrottle } from "use-throttle";
+import { useHotkeys } from "react-hotkeys-hook";
+
+import {
   CellMeasurer,
   CellMeasurerCache,
   createMasonryCellPositioner,
   Grid,
   Masonry,
-} = require("react-virtualized");
+} from "react-virtualized";
 
 require("tachyons/src/tachyons.css");
 require("react-virtualized/styles.css");
-require("./style.css");
 
-const { useEffect, useCallback, useRef, useReducer } = React;
-
-const SHELL = process.env.SHELL || "zsh";
 const SPACER = 10;
 const THROTTLE_TIME = 100;
 
 const USE_MASONRY = false;
 const USE_GRID = true;
 
-// running archivist in an interactive shell to support stuff like nvm
-const HAS_ARCHIVIST = !spawnSync(SHELL, ["-i", "-c", "archivist"]).error;
-
-const shorten = (text, length) => {
-  if (text.length < length) {
-    return text;
-  }
-
-  return text.slice(0, length - 1).trim() + "…";
-};
+const HAS_ARCHIVIST = true;
 
 const executeCLI = async (command, args) => {
   return new Promise((resolve) => {
@@ -52,26 +46,19 @@ const executeCLI = async (command, args) => {
     ];
 
     console.time("shell");
-    console.log(SHELL, cmdArgs);
-
-    const process = spawn(SHELL, cmdArgs);
-    let result = "";
-
-    process.stdout.on("data", (data) => {
-      result += data.toString();
-    });
-
-    process.stderr.on("data", (data) => {
-      console.error(data.toString());
-    });
-
-    process.on("exit", () => {
+    new Command("shell", cmdArgs).execute().then((cmd) => {
       console.timeEnd("shell");
-      // sometimes shell leaves control sequences...
-      const clean = result.replace(/^.*\[/, "[");
-      resolve(JSON.parse(clean));
+      resolve(JSON.parse(cmd.stdout));
     });
   });
+};
+
+const shorten = (text, length) => {
+  if (text.length < length) {
+    return text;
+  }
+
+  return text.slice(0, length - 1).trim() + "…";
 };
 
 const calcColumnWidth = ({ width }) => {
@@ -84,7 +71,7 @@ const Info = ({ meta, link, img, time, setSearchText }) => {
       <a
         className="mb2 db f6 lh-title no-underline underline-hover white word-wrap truncate"
         href="#"
-        onClick={() => link && shell.openExternal(link)}
+        onClick={() => link && open(link)}
       >
         {meta.title || link}
       </a>
@@ -111,10 +98,10 @@ const Info = ({ meta, link, img, time, setSearchText }) => {
       <div className="mt2 flex justify-between items-center">
         <div>
           {[
-            link && ["src", () => shell.openExternal(link)],
-            meta.static && ["frozen", () => shell.openPath(meta.static)],
-            ["img", () => shell.openPath(img)],
-            ["copy img path", () => clipboard.writeText(`'${img}'`)],
+            link && ["src", () => open(link)],
+            meta.static && ["frozen", () => open(meta.static)],
+            ["img", () => open(img)],
+            ["copy img path", () => writeText(`'${img}'`)],
           ]
             .filter(identity)
             .map(([text, callback]) => (
@@ -170,7 +157,7 @@ const createMasonryCellRenderer =
             style={{
               height: ratio * columnWidth,
               width: columnWidth,
-              backgroundImage: `url("file:${datum.img}")`,
+              backgroundImage: `url("file://${datum.img}")`,
               backgroundSize: "contain",
               backgroundRepeat: "no-repeat",
               backgroundPosition: "center",
@@ -229,9 +216,9 @@ const createGridCellRenderer =
         onMouseLeave={() => setHoveredId(null)}
       >
         <div
-          className="h-100 relative bg-gray"
+          className="h-100 relative bg-light-gray"
           style={{
-            backgroundImage: `url("file:${datum.img}")`,
+            backgroundImage: `url(${convertFileSrc(datum.img)})`,
             backgroundSize: "contain",
             // backgroundSize: "cover",
             backgroundRepeat: "no-repeat",
@@ -314,6 +301,8 @@ const App = () => {
     isSearching: false,
     hoverId: null,
   });
+  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+  const ref = useRef(null);
 
   const lastEntry = useRef("");
   const throttledSearchText = useThrottle(state.searchText, THROTTLE_TIME);
@@ -403,8 +392,11 @@ const App = () => {
       });
   }, [throttledSearchText, isBooting]);
 
-  const onResize = useCallback(
-    ({ width }) => {
+  useEffect(() => {
+    function onResize() {
+      const rect = ref.current.getBoundingClientRect();
+      const { width, height } = rect;
+
       const columnWidth = calcColumnWidth({ width });
       const columnCount = Math.floor(Math.max(width / columnWidth, 1));
 
@@ -423,9 +415,18 @@ const App = () => {
       if (masonry.current) {
         masonry.current.clearCellPositions();
       }
-    },
-    [cache, cellPositioner, masonry]
-  );
+
+      setSize({ width, height });
+    }
+
+    window.addEventListener("resize", onResize);
+    window.addEventListener("load", onResize);
+    onResize()
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, [ref, cache, cellPositioner, masonry]);
 
   if (!HAS_ARCHIVIST) {
     return (
@@ -435,61 +436,56 @@ const App = () => {
     );
   }
 
+  const canRender = state.data.length > 0 && width > 0 && height > 0;
+
   return (
     <div
-      className="sans-serif w-100 vh-100 bg-near-white"
+      className="sans-serif w-100 vh-100 bg-white"
       style={{ padding: 1 }}
+      ref={ref}
     >
-      <AutoSizer
-        key={throttledSearchText + "-" + state.data.length}
-        onResize={onResize}
-        style={{ outline: "none" }}
-      >
-        {({ width, height }) =>
-          state.data.length > 0 && (
-            <>
-              {USE_MASONRY && (
-                <Masonry
-                  style={{ padding: SPACER / 2 }}
-                  overscanByPixels={300}
-                  ref={masonry}
-                  cellCount={state.data.length}
-                  cellMeasurerCache={cache.current}
-                  cellPositioner={cellPositioner.current}
-                  cellRenderer={createMasonryCellRenderer({
-                    data: state.data,
-                    width,
-                    cache,
-                    setHoveredId: (hoverId) =>
-                      dispatch({ type: "SET_HOVER_ID", hoverId }),
-                    hoveredId: state.hoverId,
-                    setSearchText: (searchText) => {
-                      dispatch({ type: "SET_SEARCH_TEXT", searchText });
-                    },
-                  })}
-                  width={width}
-                  height={height}
-                />
-              )}
+      {canRender && (
+        <>
+          {USE_MASONRY && (
+            <Masonry
+              style={{ padding: SPACER / 2 }}
+              overscanByPixels={300}
+              ref={masonry}
+              cellCount={state.data.length}
+              cellMeasurerCache={cache.current}
+              cellPositioner={cellPositioner.current}
+              cellRenderer={createMasonryCellRenderer({
+                data: state.data,
+                width,
+                cache,
+                setHoveredId: (hoverId) =>
+                  dispatch({ type: "SET_HOVER_ID", hoverId }),
+                hoveredId: state.hoverId,
+                setSearchText: (searchText) => {
+                  dispatch({ type: "SET_SEARCH_TEXT", searchText });
+                },
+              })}
+              width={width}
+              height={height}
+            />
+          )}
 
-              {USE_GRID && (
-                <GridWrapper
-                  data={state.data}
-                  height={height}
-                  width={width}
-                  setHoveredId={(hoverId) =>
-                    dispatch({ type: "SET_HOVER_ID", hoverId })
-                  }
-                  hoveredId={state.hoverId}
-                  setSearchText={(searchText) => {
-                    dispatch({ type: "SET_SEARCH_TEXT", searchText });
-                  }}
-                />
-              )}
-            </>
-          )
-        }
-      </AutoSizer>
+          {USE_GRID && (
+            <GridWrapper
+              data={state.data}
+              height={height}
+              width={width}
+              setHoveredId={(hoverId) =>
+                dispatch({ type: "SET_HOVER_ID", hoverId })
+              }
+              hoveredId={state.hoverId}
+              setSearchText={(searchText) => {
+                dispatch({ type: "SET_SEARCH_TEXT", searchText });
+              }}
+            />
+          )}
+        </>
+      )}
 
       {state.isSearching && (
         <SearchOverlay
@@ -508,4 +504,5 @@ const App = () => {
 };
 
 const rootEl = document.getElementById("app");
-ReactDOM.render(<App />, rootEl);
+const root = ReactDOM.createRoot(rootEl);
+root.render(<App />);
