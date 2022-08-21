@@ -39,6 +39,7 @@ const HAS_ARCHIVIST = true;
 const executeCLI = async (command, args) => {
   return new Promise((resolve) => {
     const cmdArgs = [
+      "-l", // using login shell so `.zprofile` is sourced so we have proper paths
       "-c",
       ["archivist", command, ...args, "--json"].filter(identity).join(" "),
     ];
