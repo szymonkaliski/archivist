@@ -38,9 +38,7 @@ const HAS_ARCHIVIST = true;
 
 const executeCLI = async (command, args) => {
   return new Promise((resolve) => {
-    // running archivist in an interactive shell to support stuff like nvm
     const cmdArgs = [
-      "-i",
       "-c",
       ["archivist", command, ...args, "--json"].filter(identity).join(" "),
     ];
@@ -421,7 +419,7 @@ const App = () => {
 
     window.addEventListener("resize", onResize);
     window.addEventListener("load", onResize);
-    onResize()
+    onResize();
 
     return () => {
       window.removeEventListener("resize", onResize);
