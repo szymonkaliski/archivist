@@ -3,13 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/tauri";
 import { writeText } from "@tauri-apps/api/clipboard";
 import dateFormat from "dateformat";
 
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useReducer,
-} from "react";
+import React, { useState, useRef, useEffect, useReducer } from "react";
 import ReactDOM from "react-dom/client";
 import strip from "strip";
 import { chain, identity } from "lodash";
@@ -33,6 +27,7 @@ const THROTTLE_TIME = 100;
 
 const USE_MASONRY = false;
 const USE_GRID = true;
+const USE_THUMB_IMG = true;
 
 const HAS_ARCHIVIST = true;
 
@@ -156,7 +151,9 @@ const createMasonryCellRenderer =
             style={{
               height: ratio * columnWidth,
               width: columnWidth,
-              backgroundImage: `url("file://${datum.img}")`,
+              backgroundImage: `url("file://${
+                USE_THUMB_IMG ? datum.thumbImg : datum.img
+              }")`,
               backgroundSize: "contain",
               backgroundRepeat: "no-repeat",
               backgroundPosition: "center",
@@ -217,7 +214,9 @@ const createGridCellRenderer =
         <div
           className="h-100 relative bg-light-gray"
           style={{
-            backgroundImage: `url(${convertFileSrc(datum.img)})`,
+            backgroundImage: `url(${convertFileSrc(
+              USE_THUMB_IMG ? datum.thumbImg : datum.img
+            )})`,
             backgroundSize: "contain",
             // backgroundSize: "cover",
             backgroundRepeat: "no-repeat",
@@ -438,11 +437,7 @@ const App = () => {
   const canRender = state.data.length > 0 && width > 0 && height > 0;
 
   return (
-    <div
-      className="sans-serif w-100 vh-100 bg-white"
-      style={{ padding: 1 }}
-      ref={ref}
-    >
+    <div className="sans-serif w-100 vh-100 bg-white" ref={ref}>
       {canRender && (
         <>
           {USE_MASONRY && (
