@@ -1,3 +1,4 @@
+const fs = require("fs");
 const mdfind = require("mdfind");
 const path = require("path");
 
@@ -42,10 +43,12 @@ module.exports = (options, text = "Screenshot", limit) => {
           const filename = path.basename(d.kMDItemPath);
           const thumbname = path.parse(filename).name + ".png";
           const thumbImg = path.join(THUMBS_PATH, thumbname);
+          const hasThumb = fs.existsSync(thumbImg);
+          const imgPath = d.kMDItemPath;
 
           return {
-            img: d.kMDItemPath,
-            thumbImg,
+            img: imgPath,
+            thumbImg: hasThumb ? thumbImg : imgPath,
             id: d.kMDItemPath,
             link: first(d.kMDItemWhereFroms),
             time,

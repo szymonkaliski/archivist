@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "async": "^3.2.0",
-    "env-paths": "^2.2.0",
+    "env-paths": "^2.2.1",
     "lodash": "^4.17.15",
     "mkdirp": "^1.0.4",
     "yargs": "^15.3.1"

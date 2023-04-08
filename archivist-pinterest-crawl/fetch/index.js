@@ -28,6 +28,8 @@ const THUMB_SIZE = 400;
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-pins.json");
 
+const identity = (x) => x;
+
 const makePinId = (pin) => {
   return chain(pin.url).split("/").takeRight(2).first().value();
 };
@@ -218,7 +220,7 @@ const run = async (options) => {
 
   const crawldate = dateFormat(new Date(), "isoDateTime");
 
-  const finalPins = fetchedPins.map((pin) => ({
+  const finalPins = fetchedPins.filter(identity).map((pin) => ({
     board: pin.board,
     filename: pin.filename,
     title: pin.title,
