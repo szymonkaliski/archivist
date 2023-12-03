@@ -9,10 +9,10 @@
     "archivist": "./cli.js"
   },
   "dependencies": {
-    "async": "^3.2.0",
+    "async": "^3.2.5",
     "env-paths": "^2.2.1",
-    "lodash": "^4.17.15",
-    "mkdirp": "^1.0.4",
-    "yargs": "^15.3.1"
+    "lodash": "^4.17.21",
+    "mkdirp": "^2.1.6",
+    "yargs": "^17.7.2"
   }
 }

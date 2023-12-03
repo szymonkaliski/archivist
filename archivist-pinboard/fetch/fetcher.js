@@ -151,7 +151,7 @@ const getFulltext = async (frozenPath) => {
 };
 
 const run = async (links) => {
-  const headless = true;
+  const headless = 'new';
   const browser = await puppeteer.launch({ headless, ignoreHTTPSErrors: true });
 
   return new Promise((resolve, reject) => {

@@ -3,17 +3,14 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "keywords": [],
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "dependencies": {
-    "async": "^3.2.0",
+    "async": "^3.2.5",
     "env-paths": "^2.2.1",
     "mdfind": "^1.0.0",
-    "mkdirp": "^1.0.4",
-    "sharp": "^0.28.3"
+    "mkdirp": "^2.1.6",
+    "sharp": "^0.33.0"
   }
 }
