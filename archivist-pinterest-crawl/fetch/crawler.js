@@ -8,6 +8,8 @@ const ROOT = "https://pinterest.com";
 
 const sleep = (time) => new Promise((resolve) => setTimeout(resolve, time));
 
+const identity = (x) => x;
+
 const crawlPin = async (browser, pinUrl) => {
   console.log("[archivist-pinterest-crawl]", "crawling pin", pinUrl);
 
@@ -31,7 +33,7 @@ const crawlPin = async (browser, pinUrl) => {
     };
 
     const getTitle = () => {
-      const titleCard = document.querySelector(".CloseupTitleCard");
+      const titleCard = document.querySelector(".CloseupTitleCard h1");
       return titleCard ? titleCard.textContent : undefined;
     };
 
@@ -136,18 +138,32 @@ const crawlBoard = async (page, boardUrl) => {
       })
   );
 
-  return scrollResult.map((pin) => {
-    return {
-      ...pin,
-      biggestSrc: chain(pin.srcset)
-        .split(",")
-        .last()
-        .trim()
-        .split(" ")
-        .first()
-        .value(),
-    };
-  });
+  return scrollResult
+    .map((pin) => {
+      const biggestSrc =
+        pin.srcset.length > 0
+          ? chain(pin.srcset)
+              .split(",")
+              .last()
+              .trim()
+              .split(" ")
+              .first()
+              .value()
+              .trim()
+          : pin.src;
+
+      if (!biggestSrc || biggestSrc.length === 0) {
+        console.log("[archivist-pinterest-crawl]", "missing src for pin", pin);
+
+        return null;
+      }
+
+      return {
+        ...pin,
+        biggestSrc,
+      };
+    })
+    .filter(identity);
 };
 
 const crawlProfile = async (page, profileUrl) => {
@@ -192,7 +208,7 @@ const loginWithCookiesFromChrome = async (page) =>
   });
 
 const createBrowser = async (options) => {
-  const headless = 'new';
+  const headless = "new";
   const browser = await puppeteer.launch({ headless });
 
   const page = await browser.newPage();

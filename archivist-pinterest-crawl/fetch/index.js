@@ -85,25 +85,31 @@ const SETUP_STATEMENTS = [
   `,
 ];
 
+// seems to be broken
+const USE_GIF_FRAMES = false;
+
 const prepareFileForThumbnailing = async (file) => {
   if (file.endsWith("gif")) {
     return new Promise((resolve, reject) => {
       const output = mktemp.createFileSync(`${TMP_PATH}/XXXXXX.png`);
 
-      gifFrames({
-        url: file,
-        frames: 0,
-        culmative: true,
-      })
-        .then((frameData) => {
+      gifFrames(
+        {
+          url: file,
+          frames: 0,
+          culmative: true,
+        },
+        (err, frameData) => {
+          if (err) {
+            return reject(err);
+          }
+
           frameData[0]
             .getImage()
             .pipe(fs.createWriteStream(output))
             .on("finish", () => resolve(output));
-        })
-        .catch((e) => {
-          reject(e);
-        });
+        }
+      );
     });
   } else {
     return Promise.resolve(file);
@@ -119,31 +125,54 @@ const createThumbnails = async (db) => {
       dbFiles,
       10,
       ({ filename }, next) => {
+        const inputPath = path.join(ASSETS_PATH, filename);
+
+        if (!fs.existsSync(inputPath)) {
+          next();
+        }
+
         const outputName = path.parse(filename).name + ".png";
         const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
         const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
-        if (shouldMakeThumbnail) {
-          prepareFileForThumbnailing(path.join(ASSETS_PATH, filename))
-            .then((inputPath) => {
-              console.log(
-                "[archivist-pinterest-crawl]",
-                `making thumbnail for ${inputPath} -> ${outputPath}`
-              );
+        function createThumbnail(inputPath) {
+          console.log(
+            "[archivist-pinterest-crawl]",
+            `making thumbnail for ${inputPath} -> ${outputPath}`
+          );
 
-              sharp(inputPath)
-                .resize(THUMB_SIZE)
-                .png()
-                .toFile(outputPath, () => {
-                  next();
-                });
-            })
-            .catch((e) => {
-              console.log("[archivist-pinterest-crawl]", `error: ${e}`);
-              next();
-            });
+          try {
+            sharp(inputPath)
+              .resize(THUMB_SIZE)
+              .png()
+              .toFile(outputPath, () => {
+                next();
+              });
+          } catch (e) {
+            console.log(
+              "[archivist-pinterest-crawl]",
+              `error making thumbnail for: ${inputPath}`,
+              e
+            );
+            next();
+          }
+        }
+
+        if (shouldMakeThumbnail) {
+          if (USE_GIF_FRAMES) {
+            prepareFileForThumbnailing(inputPath)
+              .then((inputPath) => {
+                createThumbnail(inputPath);
+              })
+              .catch((e) => {
+                console.log("[archivist-pinterest-crawl]", `error: ${e}`);
+                next();
+              });
+          } else {
+            createThumbnail(inputPath);
+          }
         } else {
           next();
         }
@@ -173,8 +202,11 @@ const run = async (options) => {
 
   const dbPins = db.prepare("SELECT * FROM data").all();
 
-  const crawledPins = await crawlBoards(options);
-  // const crawledPins = require(CRAWLED_DATA_PATH);
+  // re-comment to crawl fresh or use stored data
+  const USE_PERSISTED_CRAWLED_DATA = false;
+  const crawledPins = USE_PERSISTED_CRAWLED_DATA
+    ? require(CRAWLED_DATA_PATH)
+    : await crawlBoards(options);
 
   if (crawledPins.length === 0) {
     console.log("[archivist-pinterest-crawl]", "0 crawled pins, exiting");
