@@ -129,6 +129,7 @@ const createThumbnails = async (db) => {
 
         if (!fs.existsSync(inputPath)) {
           next();
+          return;
         }
 
         const outputName = path.parse(filename).name + ".png";

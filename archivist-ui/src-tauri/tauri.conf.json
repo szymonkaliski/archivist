@@ -20,7 +20,7 @@
         "scope": [
           {
             "name": "shell",
-            "cmd": "zsh",
+            "cmd": "/bin/zsh",
             "args": true
           }
         ]
