@@ -11,17 +11,17 @@
   "license": "MIT",
   "dependencies": {
     "async": "^3.2.5",
-    "better-sqlite3": "^9.2.0",
+    "better-sqlite3": "^9.4.3",
     "env-paths": "^2.2.1",
     "freeze-dry": "^1.0.0",
     "is-reachable": "^5.2.1",
-    "jsdom": "^23.0.1",
+    "jsdom": "^24.0.0",
     "lodash": "^4.17.21",
     "md5": "^2.3.0",
     "mkdirp": "^2.1.6",
     "node-pinboard": "^2.0.1",
-    "puppeteer": "^21.5.2",
-    "sharp": "^0.33.0",
+    "puppeteer": "^22.4.1",
+    "sharp": "^0.33.2",
     "wayback-machine": "^0.2.1"
   },
   "devDependencies": {

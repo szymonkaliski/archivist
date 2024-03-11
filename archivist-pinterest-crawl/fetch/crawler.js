@@ -209,7 +209,7 @@ const loginWithCookiesFromChrome = async (page) =>
 
 const createBrowser = async (options) => {
   const headless = "new";
-  const browser = await puppeteer.launch({ headless });
+  const browser = await puppeteer.launch({ headless, protocolTimeout: 0 });
 
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900, deviceScaleRatio: 2 });
