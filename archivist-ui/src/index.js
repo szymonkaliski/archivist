@@ -56,7 +56,7 @@ const shorten = (text, length) => {
 };
 
 const calcColumnWidth = ({ width }) => {
-  return width / Math.floor(width / 400);
+  return width / Math.floor(width / 300);
 };
 
 const Info = ({ meta, link, img, time, setSearchText }) => {
