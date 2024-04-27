@@ -192,7 +192,7 @@ const loginWithCreds = async (page, email, password) => {
   await page.type("#password", password);
   await sleep(2000);
 
-  await page.click(".SignupButton");
+  await page.click("[data-test-id=registerFormSubmitButton] > button");
   await page.waitForNavigation();
 };
 
