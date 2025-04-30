@@ -18,7 +18,7 @@
         rustfmt
 
         # node for the rest
-        nodejs_20
+        nodejs_22
       ];
     };
   in

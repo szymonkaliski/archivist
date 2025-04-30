@@ -8,7 +8,7 @@
   "license": "MIT",
   "dependencies": {
     "async": "^3.2.5",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^11.9.1",
     "cheerio": "^1.0.0-rc.12",
     "chrome-cookies-secure": "^2.1.1",
     "dateformat": "^4.6.3",

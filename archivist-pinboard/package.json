@@ -11,7 +11,7 @@
   "license": "MIT",
   "dependencies": {
     "async": "^3.2.5",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^11.9.1",
     "env-paths": "^2.2.1",
     "freeze-dry": "^1.0.0",
     "is-reachable": "^5.2.1",
