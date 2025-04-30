@@ -257,7 +257,7 @@ const run = async (options) => {
     board: pin.board,
     filename: pin.filename,
     title: pin.title,
-    text: pin.alt,
+    text: pin.text || pin.alt,
     link: pin.link,
     pinurl: pin.url,
     pinid: makePinId(pin),

@@ -23,7 +23,7 @@ const crawlPin = async (browser, pinUrl) => {
     console.log(e);
   }
 
-  const { link, title, date } = await page.evaluate(() => {
+  const { link, title, text, date } = await page.evaluate(() => {
     const getLink = () => {
       const link = document.querySelector(".linkModuleActionButton");
       if (!link) {
@@ -35,6 +35,11 @@ const crawlPin = async (browser, pinUrl) => {
     const getTitle = () => {
       const titleCard = document.querySelector(".CloseupTitleCard h1");
       return titleCard ? titleCard.textContent : undefined;
+    };
+
+    const getText = () => {
+      const pinText = document.querySelector("[data-test-id=safeTextDirection]");
+      return pinText ? pinText.textContent : undefined;
     };
 
     const getDate = () => {
@@ -64,6 +69,7 @@ const crawlPin = async (browser, pinUrl) => {
       link: getLink(),
       title: getTitle(),
       date: getDate(),
+      text: getText(),
     });
 
     return new Promise((resolve) => {
@@ -82,7 +88,7 @@ const crawlPin = async (browser, pinUrl) => {
 
   await page.close();
 
-  return { link, title, date };
+  return { link, title, text, date };
 };
 
 const crawlBoard = async (page, boardUrl) => {
@@ -272,8 +278,8 @@ const crawlPinMetadata = async (options, pins) => {
       pins,
       4,
       (pin, callback) => {
-        crawlPin(browser, pin.url).then(({ link, title, date }) => {
-          callback(null, { ...pin, title, link, createdAt: date });
+        crawlPin(browser, pin.url).then(({ link, title, text, date }) => {
+          callback(null, { ...pin, title, text, link, createdAt: date });
         });
       },
       (err, res) => {
