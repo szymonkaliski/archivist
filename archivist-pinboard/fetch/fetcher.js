@@ -18,7 +18,7 @@ mkdirp(FROZEN_PATH);
 
 const FREEZE_DRY_PATH = path.join(
   __dirname,
-  "./assets/freeze-dry-browserified.js"
+  "./assets/freeze-dry-browserified.js",
 );
 
 const FREEZE_DRY_SRC = fs.readFileSync(FREEZE_DRY_PATH, "utf-8");
@@ -62,7 +62,7 @@ const savePageInternal = async (browser, link, url) => {
       "[archivist-pinboard]",
       "error navigating:",
       link,
-      e.toString()
+      e.toString(),
     );
 
     didOpen = false;
@@ -122,7 +122,7 @@ const savePage = async (browser, link) => {
           console.log(
             "[archivist-pinboard]",
             "couldn't find wayback for:",
-            link
+            link,
           );
           resolve(null);
         } else {
@@ -131,11 +131,11 @@ const savePage = async (browser, link) => {
             "found wayback for",
             link,
             "->",
-            closest.url
+            closest.url,
           );
 
           savePageInternal(browser, closest.url, link).then((paths) =>
-            resolve(paths)
+            resolve(paths),
           );
         }
       });
@@ -151,7 +151,7 @@ const getFulltext = async (frozenPath) => {
 };
 
 const run = async (links) => {
-  const headless = 'new';
+  const headless = "new";
   const browser = await puppeteer.launch({ headless, ignoreHTTPSErrors: true });
 
   return new Promise((resolve, reject) => {
@@ -172,7 +172,7 @@ const run = async (links) => {
               "[archivist-pinboard]",
               "uncatched error",
               link.href,
-              e.toString()
+              e.toString(),
             );
             // ignoring errors for now
             callback(null, null);
@@ -186,7 +186,7 @@ const run = async (links) => {
             resolve(res);
           }
         });
-      }
+      },
     );
   });
 };

@@ -30,11 +30,7 @@ if (TYPE === "config") {
   const editor = process.env.EDITOR || "vim";
 
   if (!fs.existsSync(CONFIG_FILE)) {
-    fs.writeFileSync(
-      JSON.stringify(`{}`, null, 2),
-      CONFIG_FILE,
-      "utf-8"
-    );
+    fs.writeFileSync(JSON.stringify(`{}`, null, 2), CONFIG_FILE, "utf-8");
   }
 
   spawn(editor, [CONFIG_FILE], { stdio: "inherit" });

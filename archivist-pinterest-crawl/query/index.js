@@ -20,7 +20,7 @@ const query = async (_, text, limit) => {
         WHERE ft_search MATCH :search
         ORDER BY createdat DESC
         ${limitSql}
-        `
+        `,
       )
       .all({ search: `${text}*` });
   } else {
@@ -30,7 +30,7 @@ const query = async (_, text, limit) => {
         SELECT * FROM data
         ORDER BY createdat DESC
         ${limitSql}
-        `
+        `,
       )
       .all();
   }

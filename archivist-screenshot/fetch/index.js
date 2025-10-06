@@ -29,7 +29,7 @@ module.exports = (options) => {
         if (shouldMakeThumbnail) {
           console.log(
             "[archivist-screenshot]",
-            `making thumbnail for ${inputPath} -> ${outputPath}`
+            `making thumbnail for ${inputPath} -> ${outputPath}`,
           );
 
           sharp(inputPath)
@@ -44,7 +44,7 @@ module.exports = (options) => {
       },
       () => {
         resolve();
-      }
+      },
     );
   });
 };

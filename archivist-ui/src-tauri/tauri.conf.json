@@ -38,9 +38,7 @@
         "depends": []
       },
       "externalBin": [],
-      "icon": [
-        "icons/icon.icns"
-      ],
+      "icon": ["icons/icon.icns"],
       "identifier": "com.szymonkaliski.archivist",
       "longDescription": "",
       "macOS": {

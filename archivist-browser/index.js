@@ -94,7 +94,7 @@ const getActivationCached = (file, mobilenet, cb) => {
     },
     (err, result) => {
       cb(err, result);
-    }
+    },
   );
 };
 
@@ -119,7 +119,7 @@ const search = (query, cb) => {
             }
           });
         },
-        cb
+        cb,
       );
     });
   });
@@ -149,7 +149,7 @@ const processUMAP = (items, cb) => {
     items.map((d, i) => {
       d.embedding = embedding[i];
       return d;
-    })
+    }),
   );
 };
 

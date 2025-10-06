@@ -61,8 +61,8 @@ module.exports = (options, text = "Screenshot", limit) => {
               note: d.kMDItemFinderComment,
             },
           };
-        })
-      )
+        }),
+      ),
     );
   });
 };

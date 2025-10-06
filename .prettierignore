@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+archivist-ui/build/
+archivist-ui/src-tauri/target/
+
+# Lock files
+package-lock.json
+Cargo.lock
+flake.lock
+
+# Git
+.git/
+.direnv/
+
+# OS
+.DS_Store

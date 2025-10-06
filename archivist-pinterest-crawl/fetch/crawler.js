@@ -38,7 +38,9 @@ const crawlPin = async (browser, pinUrl) => {
     };
 
     const getText = () => {
-      const pinText = document.querySelector("[data-test-id=safeTextDirection]");
+      const pinText = document.querySelector(
+        "[data-test-id=safeTextDirection]",
+      );
       return pinText ? pinText.textContent : undefined;
     };
 
@@ -47,7 +49,7 @@ const crawlPin = async (browser, pinUrl) => {
 
       try {
         date = Object.values(
-          JSON.parse(document.getElementById("initial-state").innerText).pins
+          JSON.parse(document.getElementById("initial-state").innerText).pins,
         ).map((p) => p.created_at)[0];
       } catch (e) {}
 
@@ -125,10 +127,10 @@ const crawlBoard = async (page, boardUrl) => {
                   console.log(
                     "[archivist-pinterest-crawl]",
                     "no a/img for",
-                    pin
+                    pin,
                   );
                 }
-              }
+              },
             );
 
             if (window.scrollY === lastScrollPosition) {
@@ -141,7 +143,7 @@ const crawlBoard = async (page, boardUrl) => {
         };
 
         scrollDown();
-      })
+      }),
   );
 
   return scrollResult
@@ -178,10 +180,10 @@ const crawlProfile = async (page, profileUrl) => {
   await page.goto(profileUrl, { waitUntil: "networkidle2" });
 
   const boards = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll("[draggable=true]")).map(
+    return Array.from(document.querySelectorAll('[aria-label="Board"]')).map(
       (el) => {
         return el.querySelector("a").href;
-      }
+      },
     );
   });
 
@@ -215,6 +217,8 @@ const loginWithCookiesFromChrome = async (page) =>
 
 const createBrowser = async (options) => {
   const headless = "new";
+  // const headless = false;
+
   const browser = await puppeteer.launch({ headless, protocolTimeout: 0 });
 
   const page = await browser.newPage();
@@ -238,7 +242,7 @@ const crawlBoards = async (options) => {
 
   const boards = await crawlProfile(
     page,
-    ROOT + "/" + options.profile + "/boards"
+    ROOT + "/" + options.profile + "/boards",
   );
 
   return new Promise((resolve) => {
@@ -250,7 +254,7 @@ const crawlBoards = async (options) => {
             "[archivist-pinterest-crawl]",
             "board pins:",
             board,
-            pins.length
+            pins.length,
           );
 
           callback(
@@ -258,14 +262,14 @@ const crawlBoards = async (options) => {
             pins.map((pin) => ({
               ...pin,
               board: chain(board).split("/").takeRight(2).first().value(),
-            }))
+            })),
           );
         }),
       (err, res) => {
         browser.close().then(() => {
           resolve(flatten(res));
         });
-      }
+      },
     );
   });
 };
@@ -286,7 +290,7 @@ const crawlPinMetadata = async (options, pins) => {
         browser.close().then(() => {
           resolve(res);
         });
-      }
+      },
     );
   });
 };

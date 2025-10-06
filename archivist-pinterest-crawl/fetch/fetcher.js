@@ -38,7 +38,7 @@ const download = async (url) => {
         if (err) {
           console.log(
             "[archivist-pinterest-crawl]",
-            `image-size error: ${err} (${finalPath})`
+            `image-size error: ${err} (${finalPath})`,
           );
 
           resolve({ filename, width: 0, height: 0 });
@@ -46,7 +46,7 @@ const download = async (url) => {
           resolve({ filename, ...size });
         }
       });
-    })
+    }),
   );
 };
 
@@ -61,7 +61,7 @@ module.exports = async (crawledPins) => {
       },
       (err, res) => {
         resolve(res);
-      }
+      },
     );
   });
 };

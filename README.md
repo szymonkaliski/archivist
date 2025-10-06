@@ -84,4 +84,3 @@ Example config (assuming Pinboard and Pinterest backup):
 - [kollektor](https://github.com/vorg/kollektor) - no-ui self-hosted Pinterest clone
 - gwern on [archiving URLs](https://www.gwern.net/Archiving-URLs)
 - [freeze-dry implementation notes](https://github.com/WebMemex/freeze-dry/blob/master/src/Readme.md)
-

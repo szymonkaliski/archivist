@@ -190,7 +190,7 @@ const SearchOverlay = React.forwardRef(
         }}
       />
     </div>
-  )
+  ),
 );
 
 const createGridCellRenderer =
@@ -215,7 +215,7 @@ const createGridCellRenderer =
           className="h-100 relative bg-light-gray"
           style={{
             backgroundImage: `url(${convertFileSrc(
-              USE_THUMB_IMG ? datum.thumbImg : datum.img
+              USE_THUMB_IMG ? datum.thumbImg : datum.img,
             )})`,
             backgroundSize: "contain",
             // backgroundSize: "cover",
@@ -322,7 +322,7 @@ const App = () => {
 
       return false;
     },
-    [state.isSearching]
+    [state.isSearching],
   );
 
   useHotkeys(
@@ -334,7 +334,7 @@ const App = () => {
 
       return false;
     },
-    [state.isSearching]
+    [state.isSearching],
   );
 
   const cache = useRef(
@@ -342,7 +342,7 @@ const App = () => {
       defaultHeight: 400,
       defaultWidth: 400,
       fixedWidth: true,
-    })
+    }),
   );
 
   const cellPositioner = useRef(
@@ -351,7 +351,7 @@ const App = () => {
       columnCount: 3,
       columnWidth: 400,
       spacer: SPACER,
-    })
+    }),
   );
 
   const isBooting = state.isBooting;
@@ -366,8 +366,8 @@ const App = () => {
       throttledSearchText && throttledSearchText.length >= 1
         ? [`"${throttledSearchText}"`]
         : isBooting // start by querying just a couple of items for faster perceived start
-        ? ["--limit", "10"]
-        : []
+          ? ["--limit", "10"]
+          : [],
     )
       .then((data) => {
         if (lastEntry.current !== throttledSearchText) {

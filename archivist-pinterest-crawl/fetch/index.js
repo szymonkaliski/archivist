@@ -49,7 +49,7 @@ const processRemovedPins = async (removedPins) => {
 
         callback(null, item.pinid);
       },
-      (err, pinids) => resolve(pinids)
+      (err, pinids) => resolve(pinids),
     );
   });
 };
@@ -108,7 +108,7 @@ const prepareFileForThumbnailing = async (file) => {
             .getImage()
             .pipe(fs.createWriteStream(output))
             .on("finish", () => resolve(output));
-        }
+        },
       );
     });
   } else {
@@ -141,7 +141,7 @@ const createThumbnails = async (db) => {
         function createThumbnail(inputPath) {
           console.log(
             "[archivist-pinterest-crawl]",
-            `making thumbnail for ${inputPath} -> ${outputPath}`
+            `making thumbnail for ${inputPath} -> ${outputPath}`,
           );
 
           try {
@@ -155,7 +155,7 @@ const createThumbnails = async (db) => {
             console.log(
               "[archivist-pinterest-crawl]",
               `error making thumbnail for: ${inputPath}`,
-              e
+              e,
             );
             next();
           }
@@ -180,7 +180,7 @@ const createThumbnails = async (db) => {
       },
       () => {
         resolve();
-      }
+      },
     );
   });
 };
@@ -191,12 +191,12 @@ const run = async (options) => {
   SETUP_STATEMENTS.forEach((stmt) => db.prepare(stmt).run());
 
   const search = db.prepare(
-    "SELECT count(pinid) AS count FROM data WHERE pinid = ?"
+    "SELECT count(pinid) AS count FROM data WHERE pinid = ?",
   );
 
   const insert = db.prepare(
     `INSERT OR REPLACE INTO data (board,   filename,  title,  text,  link,  pinurl,  pinid,  crawldate,  createdat,  width,  height)
-     VALUES                      (:board, :filename, :title, :text, :link, :pinurl, :pinid, :crawldate, :createdat, :width, :height)`
+     VALUES                      (:board, :filename, :title, :text, :link, :pinurl, :pinid, :crawldate, :createdat, :width, :height)`,
   );
 
   const remove = db.prepare("DELETE FROM data WHERE pinid = ?");
@@ -217,7 +217,7 @@ const run = async (options) => {
   fs.writeFileSync(
     CRAWLED_DATA_PATH,
     JSON.stringify(crawledPins, null, 2),
-    "utf-8"
+    "utf-8",
   );
   // console.log("[archivist-pinterest-crawl]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
@@ -231,12 +231,12 @@ const run = async (options) => {
   });
 
   const removedPins = dbPins.filter(
-    ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid)
+    ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
   );
 
   console.log(
     "[archivist-pinterest-crawl]",
-    `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`
+    `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
   );
 
   const pinidsToRemove = await processRemovedPins(removedPins);
@@ -279,7 +279,7 @@ const run = async (options) => {
 
   console.log(
     "[archivist-pinterest-crawl]",
-    `inserted pins: ${finalPins.length} (of ${newPins.length})`
+    `inserted pins: ${finalPins.length} (of ${newPins.length})`,
   );
 };
 

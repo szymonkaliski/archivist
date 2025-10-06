@@ -48,7 +48,7 @@ const fetch = () => {
           crawler(config)
             .fetch(config)
             .then(callback)
-            .catch((e) => callback(`[${name}] fetching error ${e}`))
+            .catch((e) => callback(`[${name}] fetching error ${e}`)),
         );
       },
       (err) => {
@@ -57,7 +57,7 @@ const fetch = () => {
         }
 
         resolve();
-      }
+      },
     );
   });
 };
@@ -84,7 +84,7 @@ const search = (query, limit) => {
           .sortBy((d) => new Date(d.time));
 
         resolve(sortedResult);
-      }
+      },
     );
   });
 };

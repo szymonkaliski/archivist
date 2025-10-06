@@ -47,7 +47,7 @@ const processRemovedLinks = async (removedLinks) => {
 
         callback(null, item.hash);
       },
-      (err, hashes) => resolve(hashes)
+      (err, hashes) => resolve(hashes),
     );
   });
 };
@@ -72,7 +72,7 @@ const createThumbnails = async (db) => {
         if (shouldMakeThumbnail) {
           console.log(
             "[archivist-pinboard]",
-            `making thumbnail for ${inputPath} -> ${outputPath}`
+            `making thumbnail for ${inputPath} -> ${outputPath}`,
           );
 
           sharp(inputPath)
@@ -87,7 +87,7 @@ const createThumbnails = async (db) => {
       },
       () => {
         resolve();
-      }
+      },
     );
   });
 };
@@ -138,12 +138,12 @@ const run = async (options) => {
   SETUP_STATEMENTS.forEach((stmt) => db.prepare(stmt).run());
 
   const search = db.prepare(
-    "SELECT count(hash) AS count FROM data WHERE hash = ?"
+    "SELECT count(hash) AS count FROM data WHERE hash = ?",
   );
 
   const insert = db.prepare(
     `INSERT OR REPLACE INTO data (href,   hash,  meta,  description,  extended,  tags,  time,  screenshot,  frozen,  fulltext)
-     VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen, :fulltext)`
+     VALUES                      (:href, :hash, :meta, :description, :extended, :tags, :time, :screenshot, :frozen, :fulltext)`,
   );
 
   const remove = db.prepare("DELETE FROM data WHERE hash = ?");
@@ -169,21 +169,21 @@ const run = async (options) => {
   fs.writeFileSync(
     CRAWLED_DATA_PATH,
     JSON.stringify(crawledLinks, null, 2),
-    "utf-8"
+    "utf-8",
   );
   // console.log("[archivist-pinboard]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newLinks = crawledLinks.filter(
-    (link) => search.get(link.hash).count === 0
+    (link) => search.get(link.hash).count === 0,
   );
 
   const removedLinks = dbLinks.filter(
-    ({ hash }) => !crawledLinks.find((l) => l.hash === hash)
+    ({ hash }) => !crawledLinks.find((l) => l.hash === hash),
   );
 
   console.log(
     "[archivist-pinboard]",
-    `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removed links: ${removedLinks.length}`
+    `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removed links: ${removedLinks.length}`,
   );
 
   const hashesToRemove = await processRemovedLinks(removedLinks);
@@ -221,7 +221,7 @@ const run = async (options) => {
 
   console.log(
     "[archivist-pinboard]",
-    `insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`
+    `insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`,
   );
 };
 
