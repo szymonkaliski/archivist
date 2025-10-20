@@ -7,7 +7,6 @@ const { chain } = require("lodash");
 
 const CONFIG_PATH = envPaths("archivist").config;
 const CONFIG_FILE = path.join(CONFIG_PATH, "config.json");
-const DEFAULT_CONFIG = {};
 
 mkdirp(CONFIG_PATH);
 

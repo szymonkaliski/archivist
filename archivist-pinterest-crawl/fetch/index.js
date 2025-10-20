@@ -239,13 +239,20 @@ const run = async (options) => {
     `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
   );
 
-  const pinidsToRemove = await processRemovedPins(removedPins);
+  if (!options.appendOnly) {
+    const pinidsToRemove = await processRemovedPins(removedPins);
 
-  const removePins = db.transaction((pinids) => {
-    pinids.forEach((pinid) => remove.run(pinid));
-  });
+    const removePins = db.transaction((pinids) => {
+      pinids.forEach((pinid) => remove.run(pinid));
+    });
 
-  removePins(pinidsToRemove);
+    removePins(pinidsToRemove);
+  } else {
+    console.log(
+      "[archivist-pinterest-crawl]",
+      "appendOnly mode enabled, skipping removal of pins",
+    );
+  }
 
   const newPinsWithMetadata = await crawlPinMetadata(options, newPins);
 
