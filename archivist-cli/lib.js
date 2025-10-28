@@ -43,12 +43,14 @@ const fetch = () => {
       Object.entries(loadConfig()),
       os.cpus().length,
       ([name, config], callback) => {
-        loadCrawler(name).then((crawler) =>
-          crawler(config)
-            .fetch(config)
-            .then(callback)
-            .catch((e) => callback(`[${name}] fetching error ${e}`)),
-        );
+        loadCrawler(name)
+          .then((crawler) =>
+            crawler(config)
+              .fetch(config)
+              .then(callback)
+              .catch((e) => callback(`[${name}] fetching error ${e}`)),
+          )
+          .catch((e) => callback(`[${name}] fetching error ${e}`));
       },
       (err) => {
         if (err) {
@@ -67,11 +69,13 @@ const search = (query, limit) => {
       Object.entries(loadConfig()),
       ([name, config], callback) => {
         // loading the whole crawler is slow - maybe due to puppeteer?
-        loadCrawler(`${name}/query`).then((crawlerQuery) => {
-          crawlerQuery(config, query, limit)
-            .then((result) => callback(null, result))
-            .catch((e) => callback(`[${name}] search error ${e}`));
-        });
+        loadCrawler(`${name}/query`)
+          .then((crawlerQuery) => {
+            crawlerQuery(config, query, limit)
+              .then((result) => callback(null, result))
+              .catch((e) => callback(`[${name}] search error ${e}`));
+          })
+          .catch((e) => callback(`[${name}] search error ${e}`));
       },
       (err, result) => {
         if (err) {
