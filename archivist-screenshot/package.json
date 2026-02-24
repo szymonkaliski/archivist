@@ -2,15 +2,21 @@
   "name": "archivist-screenshot",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "index.ts",
   "keywords": [],
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "dependencies": {
-    "async": "^3.2.5",
-    "env-paths": "^2.2.1",
+    "archivist-logger": "file:../archivist-logger",
+    "async": "^3.2.6",
+    "better-sqlite3": "^12.6.2",
+    "bplist-parser": "^0.3.2",
+    "env-paths": "^4.0.0",
     "mdfind": "^1.0.0",
-    "mkdirp": "^2.1.6",
-    "sharp": "^0.33.0"
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/async": "^3.2.25",
+    "@types/better-sqlite3": "^7.6.13"
   }
 }

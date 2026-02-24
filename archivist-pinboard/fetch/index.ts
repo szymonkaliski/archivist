@@ -1,79 +1,92 @@
-const Database = require("better-sqlite3");
-const async = require("async");
-const envPaths = require("env-paths");
-const fs = require("fs");
-const mkdirp = require("mkdirp");
-const path = require("path");
-const sharp = require("sharp");
-const { default: Pinboard } = require("node-pinboard");
-const { isString } = require("lodash");
+import Database from "better-sqlite3";
+import async from "async";
+import envPaths from "env-paths";
+import fs from "fs";
+import path from "path";
+import sharp from "sharp";
+import { default as Pinboard } from "node-pinboard";
+import { isString } from "lodash";
 
-const fetcher = require("./fetcher");
+import { createLogger } from "archivist-logger";
+import fetcher, { type PinboardLink, type SavedPaths } from "./fetcher";
+import type { PinboardOptions } from "../index";
+
+const log = createLogger("pinboard");
 
 const DATA_PATH = envPaths("archivist-pinboard").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const FROZEN_PATH = path.join(DATA_PATH, "frozen");
 const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 
-mkdirp(ASSETS_PATH);
-mkdirp(FROZEN_PATH);
-mkdirp(THUMBS_PATH);
+fs.mkdirSync(ASSETS_PATH, { recursive: true });
+fs.mkdirSync(FROZEN_PATH, { recursive: true });
+fs.mkdirSync(THUMBS_PATH, { recursive: true });
 
-const FORCE_RECREATE_THUMBS = false;
 const THUMB_SIZE = 400;
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-links.json");
 
-const processRemovedLinks = async (removedLinks) => {
+interface PinboardDbRow extends PinboardLink {
+  screenshot: string;
+  frozen: string;
+  fulltext: string;
+}
+
+interface FetchedLink extends PinboardLink {
+  fulltext: string;
+  paths: SavedPaths;
+}
+
+const processRemovedLinks = async (
+  removedLinks: PinboardDbRow[],
+  concurrency = 10,
+): Promise<string[]> => {
   return new Promise((resolve) => {
     async.mapLimit(
       removedLinks,
-      10,
-      (item, callback) => {
+      concurrency,
+      (item: PinboardDbRow, callback: (err: null, hash: string) => void) => {
         const screenshotPath =
           item.screenshot && path.join(ASSETS_PATH, item.screenshot);
 
         const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
 
         if (screenshotPath && fs.existsSync(screenshotPath)) {
-          console.log("[archivist-pinboard]", `unlinking ${screenshotPath}`);
+          log.info(`unlinking ${screenshotPath}`);
           fs.unlinkSync(screenshotPath);
         }
 
         if (frozenPath && fs.existsSync(frozenPath)) {
-          console.log("[archivist-pinboard]", `unlinking ${frozenPath}`);
+          log.info(`unlinking ${frozenPath}`);
           fs.unlinkSync(frozenPath);
         }
 
         callback(null, item.hash);
       },
-      (err, hashes) => resolve(hashes),
+      (_err: any, hashes: any) => resolve(hashes as string[]),
     );
   });
 };
 
-// TODO: remove thumbnails if original file doesn't exist anymore
-const createThumbnails = async (db) => {
-  const dbScreenshots = db.prepare("SELECT screenshot FROM data").all();
+const createThumbnails = async (db: Database.Database, concurrency = 10) => {
+  const dbScreenshots = db.prepare("SELECT screenshot FROM data").all() as {
+    screenshot: string;
+  }[];
 
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     async.eachLimit(
       dbScreenshots,
-      10,
-      ({ screenshot: filename }, next) => {
+      concurrency,
+      ({ screenshot: filename }: { screenshot: string }, next: () => void) => {
+        if (!filename) return next();
         const inputPath = path.join(ASSETS_PATH, filename);
 
         const outputName = path.parse(filename).name + ".png";
         const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
-        const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
-
-        if (shouldMakeThumbnail) {
-          console.log(
-            "[archivist-pinboard]",
-            `making thumbnail for ${inputPath} -> ${outputPath}`,
-          );
+        if (!alreadyExists) {
+          log.info(`making thumbnail for ${inputPath} -> ${outputPath}`);
 
           sharp(inputPath)
             .resize(THUMB_SIZE)
@@ -103,7 +116,7 @@ const SETUP_STATEMENTS = [
       tags TEXT,
       time DATETIME,
       screenshot TEXT,
-      frozen TEXT
+      frozen TEXT,
       fulltext TEXT
     )
   `,
@@ -122,7 +135,7 @@ const SETUP_STATEMENTS = [
   `,
 ];
 
-const run = async (options) => {
+const run = async (options: PinboardOptions) => {
   if (!options.apiKey) {
     throw new Error("apiKey not provided");
   }
@@ -148,11 +161,10 @@ const run = async (options) => {
 
   const remove = db.prepare("DELETE FROM data WHERE hash = ?");
 
-  const dbLinks = db.prepare("SELECT * FROM data").all();
+  const dbLinks = db.prepare("SELECT * FROM data").all() as PinboardDbRow[];
 
-  let crawledLinks = await crawlLinks();
+  let crawledLinks: any = await crawlLinks();
 
-  // not sure what's going on in here really
   if (isString(crawledLinks)) {
     try {
       crawledLinks = JSON.parse(crawledLinks.slice(1));
@@ -160,44 +172,44 @@ const run = async (options) => {
   }
 
   if (isString(crawledLinks)) {
-    console.log("[archivist-pinboard] unrecoverable issue with crawled links");
+    log.error("unrecoverable issue with crawled links");
     return;
   }
-
-  // const crawledLinks = require(CRAWLED_DATA_PATH);
 
   fs.writeFileSync(
     CRAWLED_DATA_PATH,
     JSON.stringify(crawledLinks, null, 2),
     "utf-8",
   );
-  // console.log("[archivist-pinboard]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newLinks = crawledLinks.filter(
-    (link) => search.get(link.hash).count === 0,
+    (link: PinboardLink) =>
+      (search.get(link.hash) as { count: number }).count === 0,
   );
 
   const removedLinks = dbLinks.filter(
-    ({ hash }) => !crawledLinks.find((l) => l.hash === hash),
+    ({ hash }) => !crawledLinks.find((l: PinboardLink) => l.hash === hash),
   );
 
-  console.log(
-    "[archivist-pinboard]",
+  log.info(
     `all links: ${crawledLinks.length} / new links: ${newLinks.length} / removed links: ${removedLinks.length}`,
   );
 
-  const hashesToRemove = await processRemovedLinks(removedLinks);
+  const hashesToRemove = await processRemovedLinks(
+    removedLinks,
+    options.concurrency,
+  );
 
-  const removeLinks = db.transaction((hashes) => {
+  const removeLinks = db.transaction((hashes: string[]) => {
     hashes.forEach((hash) => remove.run(hash));
   });
 
   removeLinks(hashesToRemove);
 
-  const fetchedLinks = await fetcher(newLinks);
+  const fetchedLinks = await fetcher(newLinks, options.concurrency);
 
-  const finalLinks = fetchedLinks
-    .filter((link) => link && link.paths)
+  const finalLinks = (fetchedLinks as (FetchedLink | null)[])
+    .filter((link): link is FetchedLink => link != null && link.paths != null)
     .map((link) => ({
       href: link.href,
       hash: link.hash,
@@ -211,18 +223,17 @@ const run = async (options) => {
       fulltext: link.fulltext,
     }));
 
-  const insertLinks = db.transaction((links) => {
+  const insertLinks = db.transaction((links: any[]) => {
     links.forEach((link) => insert.run(link));
   });
 
   insertLinks(finalLinks);
 
-  createThumbnails(db);
+  await createThumbnails(db, options.concurrency);
 
-  console.log(
-    "[archivist-pinboard]",
-    `insterted links: ${finalLinks.length} (of ${newLinks.length} new links)`,
+  log.info(
+    `inserted links: ${finalLinks.length} (of ${newLinks.length} new links)`,
   );
 };
 
-module.exports = run;
+export default run;

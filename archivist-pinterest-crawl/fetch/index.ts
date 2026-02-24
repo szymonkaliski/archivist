@@ -1,55 +1,94 @@
-const Database = require("better-sqlite3");
-const async = require("async");
-const dateFormat = require("dateformat");
-const envPaths = require("env-paths");
-const fs = require("fs");
-const gifFrames = require("gif-frames");
-const mkdirp = require("mkdirp");
-const mktemp = require("mktemp");
-const path = require("path");
-const sharp = require("sharp");
-const { chain } = require("lodash");
+import Database from "better-sqlite3";
+import async from "async";
+import dateFormat from "dateformat";
+import envPaths from "env-paths";
+import fs from "fs";
+import gifFrames from "gif-frames";
+import mktemp from "mktemp";
+import path from "path";
+import sharp from "sharp";
+import { chain } from "lodash";
 
-const { crawlBoards, crawlPinMetadata } = require("./crawler");
-const fetcher = require("./fetcher");
+import { createLogger } from "archivist-logger";
+import { crawlBoards, crawlPinMetadata } from "./crawler";
+import fetcher from "./fetcher";
+import type { PinterestOptions } from "../index";
+
+const log = createLogger("pinterest");
 
 const DATA_PATH = envPaths("archivist-pinterest").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 const TMP_PATH = "/tmp/archivist-pinterest-crawl";
 
-mkdirp(DATA_PATH);
-mkdirp(THUMBS_PATH);
-mkdirp(TMP_PATH);
-mkdirp(ASSETS_PATH);
+fs.mkdirSync(DATA_PATH, { recursive: true });
+fs.mkdirSync(THUMBS_PATH, { recursive: true });
+fs.mkdirSync(TMP_PATH, { recursive: true });
+fs.mkdirSync(ASSETS_PATH, { recursive: true });
 
-const FORCE_RECREATE_THUMBS = false;
 const THUMB_SIZE = 400;
 
 const CRAWLED_DATA_PATH = path.join(DATA_PATH, "crawled-pins.json");
 
-const identity = (x) => x;
+export interface CrawledPin {
+  url: string;
+  src: string;
+  alt: string;
+  srcset: string;
+  biggestSrc: string;
+  board: string;
+}
 
-const makePinId = (pin) => {
-  return chain(pin.url).split("/").takeRight(2).first().value();
+export interface CrawledPinWithMetadata extends CrawledPin {
+  title?: string;
+  text?: string;
+  link?: string;
+  createdAt?: string;
+}
+
+export interface FetchedPin extends CrawledPinWithMetadata {
+  filename: string;
+  width: number;
+  height: number;
+}
+
+interface PinDbRow {
+  board: string;
+  filename: string;
+  title?: string;
+  text?: string;
+  link?: string;
+  pinurl: string;
+  pinid: string;
+  crawldate: string;
+  createdat?: string;
+  width: number;
+  height: number;
+}
+
+const makePinId = (pin: CrawledPin): string => {
+  return chain(pin.url).split("/").takeRight(2).first().value() as string;
 };
 
-const processRemovedPins = async (removedPins) => {
+const processRemovedPins = async (
+  removedPins: PinDbRow[],
+  concurrency = 10,
+): Promise<string[]> => {
   return new Promise((resolve) => {
     async.mapLimit(
       removedPins,
-      10,
-      (item, callback) => {
+      concurrency,
+      (item: PinDbRow, callback: (err: null, pinid: string) => void) => {
         const filePath = item.filename && path.join(DATA_PATH, item.filename);
 
         if (filePath && fs.existsSync(filePath)) {
-          console.log("[archivist-pinterest-crawl]", `unlinking ${filePath}`);
+          log.info(`unlinking ${filePath}`);
           fs.unlinkSync(filePath);
         }
 
         callback(null, item.pinid);
       },
-      (err, pinids) => resolve(pinids),
+      (_err: any, pinids: any) => resolve(pinids as string[]),
     );
   });
 };
@@ -88,7 +127,7 @@ const SETUP_STATEMENTS = [
 // seems to be broken
 const USE_GIF_FRAMES = false;
 
-const prepareFileForThumbnailing = async (file) => {
+const prepareFileForThumbnailing = async (file: string): Promise<string> => {
   if (file.endsWith("gif")) {
     return new Promise((resolve, reject) => {
       const output = mktemp.createFileSync(`${TMP_PATH}/XXXXXX.png`);
@@ -99,7 +138,7 @@ const prepareFileForThumbnailing = async (file) => {
           frames: 0,
           culmative: true,
         },
-        (err, frameData) => {
+        (err: any, frameData: any) => {
           if (err) {
             return reject(err);
           }
@@ -116,15 +155,16 @@ const prepareFileForThumbnailing = async (file) => {
   }
 };
 
-// TODO: remove thumbnails if original file doesn't exist anymore
-const createThumbnails = async (db) => {
-  const dbFiles = db.prepare("SELECT filename FROM data").all();
+const createThumbnails = async (db: Database.Database, concurrency = 10) => {
+  const dbFiles = db.prepare("SELECT filename FROM data").all() as {
+    filename: string;
+  }[];
 
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     async.eachLimit(
       dbFiles,
-      10,
-      ({ filename }, next) => {
+      concurrency,
+      ({ filename }: { filename: string }, next: () => void) => {
         const inputPath = path.join(ASSETS_PATH, filename);
 
         if (!fs.existsSync(inputPath)) {
@@ -136,13 +176,9 @@ const createThumbnails = async (db) => {
         const outputPath = path.join(THUMBS_PATH, outputName);
 
         const alreadyExists = fs.existsSync(outputPath);
-        const shouldMakeThumbnail = FORCE_RECREATE_THUMBS || !alreadyExists;
 
-        function createThumbnail(inputPath) {
-          console.log(
-            "[archivist-pinterest-crawl]",
-            `making thumbnail for ${inputPath} -> ${outputPath}`,
-          );
+        function createThumbnail(inputPath: string) {
+          log.info(`making thumbnail for ${inputPath} -> ${outputPath}`);
 
           try {
             sharp(inputPath)
@@ -152,23 +188,23 @@ const createThumbnails = async (db) => {
                 next();
               });
           } catch (e) {
-            console.log(
-              "[archivist-pinterest-crawl]",
-              `error making thumbnail for: ${inputPath}`,
-              e,
+            log.error(
+              "error making thumbnail for: %s %s",
+              inputPath,
+              String(e),
             );
             next();
           }
         }
 
-        if (shouldMakeThumbnail) {
+        if (!alreadyExists) {
           if (USE_GIF_FRAMES) {
             prepareFileForThumbnailing(inputPath)
               .then((inputPath) => {
                 createThumbnail(inputPath);
               })
               .catch((e) => {
-                console.log("[archivist-pinterest-crawl]", `error: ${e}`);
+                log.error(`error: ${e}`);
                 next();
               });
           } else {
@@ -185,7 +221,7 @@ const createThumbnails = async (db) => {
   });
 };
 
-const run = async (options) => {
+const run = async (options: PinterestOptions) => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
 
   SETUP_STATEMENTS.forEach((stmt) => db.prepare(stmt).run());
@@ -201,16 +237,15 @@ const run = async (options) => {
 
   const remove = db.prepare("DELETE FROM data WHERE pinid = ?");
 
-  const dbPins = db.prepare("SELECT * FROM data").all();
+  const dbPins = db.prepare("SELECT * FROM data").all() as PinDbRow[];
 
-  // re-comment to crawl fresh or use stored data
   const USE_PERSISTED_CRAWLED_DATA = false;
-  const crawledPins = USE_PERSISTED_CRAWLED_DATA
+  const crawledPins: CrawledPin[] = USE_PERSISTED_CRAWLED_DATA
     ? require(CRAWLED_DATA_PATH)
     : await crawlBoards(options);
 
   if (crawledPins.length === 0) {
-    console.log("[archivist-pinterest-crawl]", "0 crawled pins, exiting");
+    log.warn("0 crawled pins, exiting");
     return;
   }
 
@@ -219,7 +254,6 @@ const run = async (options) => {
     JSON.stringify(crawledPins, null, 2),
     "utf-8",
   );
-  // console.log("[archivist-pinterest-crawl]", `crawled data saved to ${CRAWLED_DATA_PATH}`);
 
   const newPins = crawledPins.filter((pin) => {
     if (!pin) {
@@ -227,67 +261,65 @@ const run = async (options) => {
     }
 
     const pinid = makePinId(pin);
-    return search.get(pinid).count === 0;
+    return (search.get(pinid) as { count: number }).count === 0;
   });
 
   const removedPins = dbPins.filter(
     ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
   );
 
-  console.log(
-    "[archivist-pinterest-crawl]",
+  log.info(
     `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
   );
 
   if (!options.appendOnly) {
-    const pinidsToRemove = await processRemovedPins(removedPins);
+    const pinidsToRemove = await processRemovedPins(
+      removedPins,
+      options.concurrency,
+    );
 
-    const removePins = db.transaction((pinids) => {
+    const removePins = db.transaction((pinids: string[]) => {
       pinids.forEach((pinid) => remove.run(pinid));
     });
 
     removePins(pinidsToRemove);
   } else {
-    console.log(
-      "[archivist-pinterest-crawl]",
-      "appendOnly mode enabled, skipping removal of pins",
-    );
+    log.info("appendOnly mode enabled, skipping removal of pins");
   }
 
   const newPinsWithMetadata = await crawlPinMetadata(options, newPins);
 
-  const fetchedPins = await fetcher(newPinsWithMetadata);
+  const fetchedPins = await fetcher(newPinsWithMetadata, options.concurrency);
 
   const crawldate = dateFormat(new Date(), "isoDateTime");
 
-  const finalPins = fetchedPins.filter(identity).map((pin) => ({
-    board: pin.board,
-    filename: pin.filename,
-    title: pin.title,
-    text: pin.text || pin.alt,
-    link: pin.link,
-    pinurl: pin.url,
-    pinid: makePinId(pin),
-    crawldate,
-    createdat: pin.createdAt
-      ? dateFormat(new Date(pin.createdAt), "isoDateTime")
-      : undefined,
-    width: pin.width,
-    height: pin.height,
-  }));
+  const finalPins = (fetchedPins as (FetchedPin | null)[])
+    .filter((pin): pin is FetchedPin => pin != null)
+    .map((pin) => ({
+      board: pin.board,
+      filename: pin.filename,
+      title: pin.title,
+      text: pin.text || pin.alt,
+      link: pin.link,
+      pinurl: pin.url,
+      pinid: makePinId(pin),
+      crawldate,
+      createdat: pin.createdAt
+        ? dateFormat(new Date(pin.createdAt), "isoDateTime")
+        : undefined,
+      width: pin.width,
+      height: pin.height,
+    }));
 
-  const insertPins = db.transaction((pins) => {
+  const insertPins = db.transaction((pins: any[]) => {
     pins.forEach((pin) => insert.run(pin));
   });
 
   insertPins(finalPins);
 
-  createThumbnails(db);
+  await createThumbnails(db, options.concurrency);
 
-  console.log(
-    "[archivist-pinterest-crawl]",
-    `inserted pins: ${finalPins.length} (of ${newPins.length})`,
-  );
+  log.info(`inserted pins: ${finalPins.length} (of ${newPins.length})`);
 };
 
-module.exports = run;
+export default run;

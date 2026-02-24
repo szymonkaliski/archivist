@@ -2,7 +2,7 @@
   "name": "archivist-pinboard",
   "version": "1.2.0",
   "description": "",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "postinstall": "node scripts/compile-freeze-dry.js"
   },
@@ -10,21 +10,24 @@
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "dependencies": {
-    "async": "^3.2.5",
-    "better-sqlite3": "^11.9.1",
-    "env-paths": "^2.2.1",
+    "archivist-logger": "file:../archivist-logger",
+    "async": "^3.2.6",
+    "better-sqlite3": "^12.6.2",
+    "env-paths": "^4.0.0",
     "freeze-dry": "^1.0.0",
-    "is-reachable": "^5.2.1",
-    "jsdom": "^24.0.0",
-    "lodash": "^4.17.21",
+    "is-reachable": "^6.1.0",
+    "jsdom": "^28.1.0",
+    "lodash": "^4.17.23",
     "md5": "^2.3.0",
-    "mkdirp": "^2.1.6",
     "node-pinboard": "^2.0.1",
-    "puppeteer": "^22.4.1",
-    "sharp": "^0.33.2",
-    "wayback-machine": "^0.2.1"
+    "puppeteer": "^24.37.5",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "browserify": "^17.0.0"
+    "@types/async": "^3.2.25",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/lodash": "^4.17.24",
+    "@types/md5": "^2.3.6",
+    "browserify": "^17.0.1"
   }
 }

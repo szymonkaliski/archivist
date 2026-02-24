@@ -1,0 +1,173 @@
+:root {
+  --bg: #fff;
+  --overlay-bg: rgba(30, 30, 30, 0.85);
+  --search-bg: rgba(30, 30, 30, 0.95);
+  --text: #fff;
+  --text-muted: #999;
+  --tag-color: #ccc;
+  --action-bg: #555;
+  --gap: 1px;
+  --radius: 0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.app {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+.grid-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.grid-row {
+  display: grid;
+  padding: 0 var(--gap);
+}
+
+.cell {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #f0f0f0;
+}
+
+.cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.cell-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.4;
+  display: none;
+}
+
+.cell:hover .cell-overlay {
+  display: block;
+}
+
+.cell-title {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-title:hover {
+  text-decoration: underline;
+}
+
+.cell-note {
+  color: var(--tag-color);
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cell-tags {
+  margin-bottom: 4px;
+}
+
+.cell-tag {
+  color: var(--tag-color);
+  text-decoration: none;
+  margin-right: 6px;
+}
+
+.cell-tag:hover {
+  text-decoration: underline;
+  color: var(--text);
+}
+
+.cell-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.cell-actions a {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--action-bg);
+  color: var(--text);
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.cell-actions a:hover {
+  opacity: 0.8;
+}
+
+.cell-date {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* search bar */
+
+.search-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--search-bg);
+  backdrop-filter: blur(12px);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  z-index: 10;
+}
+
+.search-slash {
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+
+.search-bar input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+}

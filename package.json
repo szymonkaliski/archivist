@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "format": "prettier --write ."
+    "check": "tsc --noEmit",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "prettier": "^3.4.2"
+    "@types/node": "^22.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.7.3"
   }
 }

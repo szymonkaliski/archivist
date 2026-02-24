@@ -1,14 +1,37 @@
-const envPaths = require("env-paths");
-const Database = require("better-sqlite3");
-const path = require("path");
+import envPaths from "env-paths";
+import Database from "better-sqlite3";
+import path from "path";
+
+import type { PinterestOptions } from "../index";
+
+interface SearchResult {
+  img: string;
+  thumbImg: string;
+  id: string;
+  link?: string;
+  time: string;
+  width: number;
+  height: number;
+  meta: {
+    source: string;
+    title?: string;
+    note?: string;
+    tags?: string[];
+    static?: string;
+  };
+}
 
 const DATA_PATH = envPaths("archivist-pinterest").data;
 const ASSETS_PATH = path.join(DATA_PATH, "assets");
 const THUMBS_PATH = path.join(DATA_PATH, "thumbs");
 
-const query = async (_, text, limit) => {
+const query = async (
+  _: PinterestOptions,
+  text?: string,
+  limit?: number,
+): Promise<SearchResult[]> => {
   const db = new Database(path.join(DATA_PATH, "data.db"));
-  let search;
+  let search: any[];
   const limitSql = limit ? `LIMIT ${limit}` : "";
 
   if (text) {
@@ -35,7 +58,7 @@ const query = async (_, text, limit) => {
       .all();
   }
 
-  return search.map((d) => {
+  return search.map((d: any) => {
     const thumbname = path.parse(d.filename).name + ".png";
 
     return {
@@ -59,4 +82,4 @@ const query = async (_, text, limit) => {
   });
 };
 
-module.exports = query;
+export default query;
