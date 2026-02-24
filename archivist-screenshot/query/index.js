@@ -46,11 +46,22 @@ module.exports = (options, text = "Screenshot", limit) => {
           const hasThumb = fs.existsSync(thumbImg);
           const imgPath = d.kMDItemPath;
 
+          let link = first(d.kMDItemWhereFroms);
+          let note = d.kMDItemFinderComment;
+
+          if (!link && note) {
+            const firstLine = note.split("\n")[0];
+            if (firstLine.startsWith("http://") || firstLine.startsWith("https://") || firstLine.startsWith("file://")) {
+              link = firstLine;
+              note = note.slice(firstLine.length + 1).replace(/^\n/, "");
+            }
+          }
+
           return {
             img: imgPath,
             thumbImg: hasThumb ? thumbImg : imgPath,
             id: d.kMDItemPath,
-            link: first(d.kMDItemWhereFroms),
+            link,
             time,
 
             width,
@@ -58,7 +69,7 @@ module.exports = (options, text = "Screenshot", limit) => {
 
             meta: {
               source: "screenshot",
-              note: d.kMDItemFinderComment,
+              note,
             },
           };
         }),
