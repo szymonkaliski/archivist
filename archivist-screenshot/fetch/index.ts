@@ -76,6 +76,27 @@ const readXattr = (filePath: string, key: string): any => {
   }
 };
 
+const parseComment = (
+  comment: string | undefined,
+): { link: string | null; note: string | null } => {
+  if (!comment) return { link: null, note: null };
+
+  let link: string | undefined;
+  let note: string | undefined = comment;
+
+  const firstLine = note.split("\n")[0];
+  if (
+    firstLine.startsWith("http://") ||
+    firstLine.startsWith("https://") ||
+    firstLine.startsWith("file://")
+  ) {
+    link = firstLine;
+    note = note.slice(firstLine.length + 1).replace(/^\n/, "");
+  }
+
+  return { link: link || null, note: note || null };
+};
+
 const extractMetadata = async (
   filepath: string,
   filename: string,
@@ -98,25 +119,12 @@ const extractMetadata = async (
     return null;
   }
 
-  let comment = readXattr(
+  const comment = readXattr(
     filepath,
     "user.com.dropbox.apple.metadata:kMDItemFinderComment",
   );
 
-  let link: string | undefined;
-  let note: string | undefined = comment;
-
-  if (note) {
-    const firstLine = note.split("\n")[0];
-    if (
-      firstLine.startsWith("http://") ||
-      firstLine.startsWith("https://") ||
-      firstLine.startsWith("file://")
-    ) {
-      link = firstLine;
-      note = note.slice(firstLine.length + 1).replace(/^\n/, "");
-    }
-  }
+  const { link, note } = parseComment(comment);
 
   return {
     filepath,
@@ -124,8 +132,8 @@ const extractMetadata = async (
     time,
     width: width!,
     height: height!,
-    link: link || null,
-    note: note || null,
+    link,
+    note,
   };
 };
 
@@ -196,6 +204,65 @@ const populateDb = async (options: ScreenshotOptions) => {
     insertAll(entries);
 
     log.info(`indexed ${entries.length} new files`);
+  }
+
+  // retry OCR extraction for rows where note is still NULL (xattr wasn't synced yet);
+  // once confirmed missing, store "" to distinguish from "not yet checked"
+  const pendingOcr = db
+    .prepare("SELECT filepath, filename FROM data WHERE note IS NULL")
+    .all() as { filepath: string; filename: string }[];
+
+  if (pendingOcr.length > 0) {
+    const update = db.prepare(
+      "UPDATE data SET link = :link, note = :note WHERE filepath = :filepath",
+    );
+    const deleteFt = db.prepare(
+      "DELETE FROM ft_search WHERE filepath = :filepath",
+    );
+    const insertFt = db.prepare(
+      "INSERT INTO ft_search(filepath, filename, link, note) VALUES (:filepath, :filename, :link, :note)",
+    );
+
+    let filled = 0;
+
+    const updateAll = db.transaction(
+      (
+        rows: {
+          filepath: string;
+          filename: string;
+          link: string | null;
+          note: string;
+        }[],
+      ) => {
+        rows.forEach((row) => {
+          update.run(row);
+          deleteFt.run(row);
+          insertFt.run(row);
+        });
+      },
+    );
+
+    const updates: {
+      filepath: string;
+      filename: string;
+      link: string | null;
+      note: string;
+    }[] = [];
+
+    for (const { filepath, filename } of pendingOcr) {
+      const comment = readXattr(
+        filepath,
+        "user.com.dropbox.apple.metadata:kMDItemFinderComment",
+      );
+      const { link, note } = parseComment(comment);
+
+      if (note) filled++;
+      updates.push({ filepath, filename, link, note: note || "" });
+    }
+
+    updateAll(updates);
+
+    log.info(`retried OCR for ${pendingOcr.length} files, filled ${filled}`);
   }
 
   db.close();
