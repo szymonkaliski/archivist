@@ -5,8 +5,8 @@
   "keywords": [],
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
-  "bin": {
-    "archivist": "./cli.ts"
+  "scripts": {
+    "start": "tsx ./cli.ts"
   },
   "dependencies": {
     "archivist-logger": "file:../archivist-logger",

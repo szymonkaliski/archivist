@@ -1,5 +1,3 @@
-#!/usr/bin/env -S npx tsx
-
 import fs from "fs";
 import { spawn } from "child_process";
 
