@@ -40,15 +40,19 @@ const download = async (
 
         fs.renameSync(tempPath, finalPath);
 
-        sizeOf(finalPath, (err: any, size: any) => {
-          if (err) {
-            log.warn(`image-size error: ${err} (${finalPath})`);
-
-            resolve({ filename, width: 0, height: 0 });
-          } else {
-            resolve({ filename, ...size });
-          }
-        });
+        try {
+          sizeOf(finalPath, (err: any, size: any) => {
+            if (err) {
+              log.warn(`image-size error: ${err} (${finalPath})`);
+              resolve({ filename, width: 0, height: 0 });
+            } else {
+              resolve({ filename, ...size });
+            }
+          });
+        } catch (err) {
+          log.warn(`image-size threw: ${err} (${finalPath})`);
+          resolve({ filename, width: 0, height: 0 });
+        }
       },
     ),
   );

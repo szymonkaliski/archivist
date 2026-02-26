@@ -70,6 +70,7 @@ const readXattr = (filePath: string, key: string): any => {
       ["-n", key, "--only-values", filePath],
       { stdio: ["pipe", "pipe", "pipe"] },
     );
+
     return bplist.parseBuffer(buf)[0];
   } catch {
     return undefined;
@@ -85,6 +86,7 @@ const parseComment = (
   let note: string | undefined = comment;
 
   const firstLine = note.split("\n")[0];
+
   if (
     firstLine.startsWith("http://") ||
     firstLine.startsWith("https://") ||
@@ -94,7 +96,19 @@ const parseComment = (
     note = note.slice(firstLine.length + 1).replace(/^\n/, "");
   }
 
-  return { link: link || null, note: note || null };
+  return {
+    link: link || null,
+    note: note || null,
+  };
+};
+
+const extractXattrComment = (filepath: string) => {
+  const comment = readXattr(
+    filepath,
+    "user.com.dropbox.apple.metadata:kMDItemFinderComment",
+  );
+
+  return parseComment(comment);
 };
 
 const extractMetadata = async (
@@ -111,20 +125,17 @@ const extractMetadata = async (
       .replace(/-/g, "/");
 
   let width: number | undefined, height: number | undefined;
+
   try {
     const meta = await sharp(filepath).metadata();
+
     width = meta.width;
     height = meta.height;
   } catch {
     return null;
   }
 
-  const comment = readXattr(
-    filepath,
-    "user.com.dropbox.apple.metadata:kMDItemFinderComment",
-  );
-
-  const { link, note } = parseComment(comment);
+  const { link, note } = extractXattrComment(filepath);
 
   return {
     filepath,
@@ -206,8 +217,9 @@ const populateDb = async (options: ScreenshotOptions) => {
     log.info(`indexed ${entries.length} new files`);
   }
 
-  // retry OCR extraction for rows where note is still NULL (xattr wasn't synced yet);
-  // once confirmed missing, store "" to distinguish from "not yet checked"
+  // retry xattr extraction for rows where note is still NULL (xattr may not
+  // have been synced by Dropbox yet), only update rows where we actually found
+  // data - leave the rest as NULL so they get retried on the next run
   const pendingOcr = db
     .prepare("SELECT filepath, filename FROM data WHERE note IS NULL")
     .all() as { filepath: string; filename: string }[];
@@ -250,14 +262,12 @@ const populateDb = async (options: ScreenshotOptions) => {
     }[] = [];
 
     for (const { filepath, filename } of pendingOcr) {
-      const comment = readXattr(
-        filepath,
-        "user.com.dropbox.apple.metadata:kMDItemFinderComment",
-      );
-      const { link, note } = parseComment(comment);
+      const { link, note } = extractXattrComment(filepath);
 
-      if (note) filled++;
-      updates.push({ filepath, filename, link, note: note || "" });
+      if (link || note) {
+        filled++;
+        updates.push({ filepath, filename, link, note: note || "" });
+      }
     }
 
     updateAll(updates);
