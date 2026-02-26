@@ -14,6 +14,14 @@ const log = createLogger("screenshot");
 
 const isMac = process.platform === "darwin";
 
+if (!isMac) {
+  try {
+    execFileSync("getfattr", ["--version"], { stdio: "pipe" });
+  } catch {
+    throw new Error("getfattr not found — install 'attr' package");
+  }
+}
+
 const THUMB_SIZE = 400;
 
 const SETUP_STATEMENTS = [

@@ -31,6 +31,7 @@
         nodejs_22
         chromium
         python311
+        attr
       ];
 
       PUPPETEER_SKIP_DOWNLOAD = "true";
