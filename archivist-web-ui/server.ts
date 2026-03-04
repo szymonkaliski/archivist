@@ -67,6 +67,12 @@ const getCachedResults = async (query?: string): Promise<any[]> => {
     ...item,
     img: `/img/${encodePath(item.img)}`,
     thumbImg: `/img/${encodePath(item.thumbImg)}`,
+    meta: {
+      ...item.meta,
+      static: item.meta.static
+        ? `/html/${encodePath(item.meta.static)}`
+        : undefined,
+    },
   }));
   resultCache.set(key, { items: rewritten, timestamp: Date.now() });
   return rewritten;
@@ -113,6 +119,30 @@ app.get("/img/:encoded", (req, res) => {
   };
 
   res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+  res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+  fs.createReadStream(resolved).pipe(res);
+});
+
+app.get("/html/:encoded", (req, res) => {
+  const decoded = decodePath(req.params.encoded);
+  const resolved = path.resolve(decoded);
+
+  if (!path.isAbsolute(resolved) || resolved !== decoded) {
+    res.status(400).json({ error: "invalid path" });
+    return;
+  }
+
+  if (path.extname(resolved).toLowerCase() !== ".html") {
+    res.status(400).json({ error: "invalid file type" });
+    return;
+  }
+
+  if (!fs.existsSync(resolved)) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=604800, immutable");
   fs.createReadStream(resolved).pipe(res);
 });

@@ -57,6 +57,11 @@ export const Cell = ({ item, onTagClick }: CellProps) => {
             <a href={item.img} target="_blank" rel="noopener noreferrer">
               img
             </a>
+            {item.meta.static && (
+              <a href={item.meta.static} target="_blank" rel="noopener noreferrer">
+                html
+              </a>
+            )}
           </div>
           <div className="cell-date">
             {item.meta.source} / {dateFormat(new Date(item.time), "yyyy-mm-dd")}

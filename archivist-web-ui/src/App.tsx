@@ -6,11 +6,17 @@ import type { SearchResult } from "./types";
 
 const PAGE_SIZE = 100;
 
+const getInitialQuery = () => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("q") || "";
+};
+
 export const App = () => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
+  const initialQuery = getInitialQuery();
+  const [query, setQuery] = useState(initialQuery);
+  const [isSearching, setIsSearching] = useState(!!initialQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastQueryRef = useRef("");
   const loadingRef = useRef(false);
@@ -18,6 +24,13 @@ export const App = () => {
   const doSearch = useCallback((q: string) => {
     lastQueryRef.current = q;
     loadingRef.current = true;
+    const url = new URL(window.location.href);
+    if (q) {
+      url.searchParams.set("q", q);
+    } else {
+      url.searchParams.delete("q");
+    }
+    window.history.replaceState(null, "", url.toString());
     fetchResults(q || undefined, 0, PAGE_SIZE)
       .then((data) => {
         if (lastQueryRef.current !== q) return;
@@ -52,11 +65,14 @@ export const App = () => {
       });
   }, []);
 
-  useEffect(() => {
-    doSearch("");
-  }, [doSearch]);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      doSearch(query);
+      return;
+    }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(query), 200);
     return () => clearTimeout(debounceRef.current);
@@ -100,6 +116,7 @@ export const App = () => {
           onClose={() => {
             setIsSearching(false);
             setQuery("");
+            window.history.replaceState(null, "", window.location.pathname);
           }}
         />
       )}
