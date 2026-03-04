@@ -201,7 +201,7 @@ const run = async (options: PinboardOptions) => {
 
   removeLinks(hashesToRemove);
 
-  const allFetched = await fetcher(newLinks, options.concurrency) as FetcherResult[];
+  const allFetched = (await fetcher(newLinks, options.concurrency) as (FetcherResult | null)[]).filter((r): r is FetcherResult => r !== null);
 
   const finalLinks = allFetched
     .filter((r): r is Extract<FetcherResult, { kind: "saved" }> => r.kind === "saved")

@@ -129,13 +129,11 @@ const savePageInternal = async (
 
 export type FetcherResult =
   | { kind: "saved"; link: PinboardLink; fulltext: string; paths: SavedPaths }
-  | { kind: "permanently_failed"; link: PinboardLink }
-  | { kind: "error" };
+  | { kind: "permanently_failed"; link: PinboardLink };
 
 type SavePageResult =
   | { kind: "saved"; paths: SavedPaths }
-  | { kind: "permanently_failed" }
-  | { kind: "error" };
+  | { kind: "permanently_failed" };
 
 const tryWayback = async (link: string): Promise<string | null> => {
   try {
@@ -183,28 +181,32 @@ const savePage = async (
 ): Promise<SavePageResult> => {
   const isOnline = await isReachable(link);
 
-  if (!isOnline) {
-    log.info("offline, trying wayback for: %s", link);
-
+  const tryArchives = async (): Promise<SavePageResult> => {
     const waybackUrl = await tryWayback(link);
     if (waybackUrl) {
       const paths = await savePageInternal(browser, waybackUrl, link);
-      return paths ? { kind: "saved", paths } : { kind: "error" };
+      if (paths) return { kind: "saved", paths };
     }
-
-    log.info("trying archive.today for: %s", link);
 
     const archiveTodayUrl = await tryArchiveToday(link);
     if (archiveTodayUrl) {
       const paths = await savePageInternal(browser, archiveTodayUrl, link);
-      return paths ? { kind: "saved", paths } : { kind: "error" };
+      if (paths) return { kind: "saved", paths };
     }
 
     return { kind: "permanently_failed" };
+  };
+
+  if (!isOnline) {
+    log.info("offline, trying archives for: %s", link);
+    return tryArchives();
   }
 
   const paths = await savePageInternal(browser, link, link);
-  return paths ? { kind: "saved", paths } : { kind: "error" };
+  if (paths) return { kind: "saved", paths };
+
+  log.info("navigation failed, trying archives for: %s", link);
+  return tryArchives();
 };
 
 const getFulltext = async (frozenPath: string): Promise<string> => {
@@ -232,11 +234,6 @@ const run = async (links: PinboardLink[], concurrency = 10) => {
           .then(async (result): Promise<void> => {
             if (result.kind === "permanently_failed") {
               callback(null, { kind: "permanently_failed", link } satisfies FetcherResult);
-              return;
-            }
-
-            if (result.kind === "error") {
-              callback(null, { kind: "error" } satisfies FetcherResult);
               return;
             }
 
