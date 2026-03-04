@@ -26,6 +26,7 @@ const FREEZE_DRY_PATH = path.join(
 const FREEZE_DRY_SRC = fs.readFileSync(FREEZE_DRY_PATH, "utf-8");
 
 const WAYBACK_API = "https://archive.org/wayback/available?url=";
+const ARCHIVE_TODAY_BASE = "https://archive.today/newest/";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,43 +127,94 @@ const savePageInternal = async (
   };
 };
 
+export type FetcherResult =
+  | { kind: "saved"; link: PinboardLink; fulltext: string; paths: SavedPaths }
+  | { kind: "permanently_failed"; link: PinboardLink }
+  | { kind: "error" };
+
+type SavePageResult =
+  | { kind: "saved"; paths: SavedPaths }
+  | { kind: "permanently_failed" }
+  | { kind: "error" };
+
+const tryWayback = async (link: string): Promise<string | null> => {
+  try {
+    const res = await globalThis.fetch(
+      `${WAYBACK_API}${encodeURIComponent(link)}`,
+    );
+    const data = await res.json();
+    const closest = data?.archived_snapshots?.closest;
+    if (closest?.available && closest?.url) {
+      log.info("found wayback for %s -> %s", link, closest.url);
+      return closest.url;
+    }
+    log.warn("couldn't find wayback for: %s", link);
+  } catch (e: any) {
+    log.error("wayback lookup failed for: %s %s", link, e.toString());
+  }
+  return null;
+};
+
+const tryArchiveToday = async (link: string): Promise<string | null> => {
+  try {
+    const res = await globalThis.fetch(`${ARCHIVE_TODAY_BASE}${link}`, {
+      redirect: "manual",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      },
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (location) {
+        log.info("found archive.today for %s -> %s", link, location);
+        return location;
+      }
+    }
+    log.warn("couldn't find archive.today for: %s", link);
+  } catch (e: any) {
+    log.error("archive.today lookup failed for: %s %s", link, e.toString());
+  }
+  return null;
+};
+
 const savePage = async (
   browser: Browser,
   link: string,
-): Promise<SavedPaths | null> => {
+): Promise<SavePageResult> => {
   const isOnline = await isReachable(link);
 
   if (!isOnline) {
     log.info("offline, trying wayback for: %s", link);
 
-    try {
-      const res = await globalThis.fetch(
-        `${WAYBACK_API}${encodeURIComponent(link)}`,
-      );
-      const data = await res.json();
-      const closest = data?.archived_snapshots?.closest;
-      const isClosest = closest && !!closest.available && !!closest.url;
-
-      if (!isClosest) {
-        log.warn("couldn't find wayback for: %s", link);
-        return null;
-      }
-
-      log.info("found wayback for %s -> %s", link, closest.url);
-
-      return await savePageInternal(browser, closest.url, link);
-    } catch (e: any) {
-      log.error("wayback lookup failed for: %s %s", link, e.toString());
-      return null;
+    const waybackUrl = await tryWayback(link);
+    if (waybackUrl) {
+      const paths = await savePageInternal(browser, waybackUrl, link);
+      return paths ? { kind: "saved", paths } : { kind: "error" };
     }
+
+    log.info("trying archive.today for: %s", link);
+
+    const archiveTodayUrl = await tryArchiveToday(link);
+    if (archiveTodayUrl) {
+      const paths = await savePageInternal(browser, archiveTodayUrl, link);
+      return paths ? { kind: "saved", paths } : { kind: "error" };
+    }
+
+    return { kind: "permanently_failed" };
   }
 
-  return await savePageInternal(browser, link, link);
+  const paths = await savePageInternal(browser, link, link);
+  return paths ? { kind: "saved", paths } : { kind: "error" };
 };
 
 const getFulltext = async (frozenPath: string): Promise<string> => {
-  const DOM = await JSDOM.fromFile(frozenPath);
-  return DOM.window.document.body.textContent || "";
+  try {
+    const DOM = await JSDOM.fromFile(frozenPath);
+    return DOM.window.document.body.textContent || "";
+  } catch (e: any) {
+    log.warn("failed to extract fulltext from %s: %s", frozenPath, e.message);
+    return "";
+  }
 };
 
 const run = async (links: PinboardLink[], concurrency = 10) => {
@@ -177,17 +229,22 @@ const run = async (links: PinboardLink[], concurrency = 10) => {
       concurrency,
       (link: PinboardLink, callback: (err: any, result?: any) => void) => {
         savePage(browser, link.href)
-          .then(async (paths) => {
-            if (!paths) {
-              callback(null, null);
+          .then(async (result): Promise<void> => {
+            if (result.kind === "permanently_failed") {
+              callback(null, { kind: "permanently_failed", link } satisfies FetcherResult);
               return;
             }
 
-            const fulltext = paths.frozen
-              ? await getFulltext(path.join(FROZEN_PATH, paths.frozen))
+            if (result.kind === "error") {
+              callback(null, { kind: "error" } satisfies FetcherResult);
+              return;
+            }
+
+            const fulltext = result.paths.frozen
+              ? await getFulltext(path.join(FROZEN_PATH, result.paths.frozen))
               : "";
 
-            callback(null, { ...link, fulltext, paths });
+            callback(null, { kind: "saved", link, fulltext, paths: result.paths } satisfies FetcherResult);
           })
           .catch((e) => {
             log.error("uncaught error %s %s", link.href, e.toString());
