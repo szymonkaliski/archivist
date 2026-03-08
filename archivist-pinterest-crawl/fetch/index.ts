@@ -184,7 +184,15 @@ const createThumbnails = async (db: Database.Database, concurrency = 10) => {
             sharp(inputPath)
               .resize(THUMB_SIZE)
               .png()
-              .toFile(outputPath, () => {
+              .toFile(outputPath, (err: any) => {
+                if (err) {
+                  log.error(
+                    "error making thumbnail for: %s %s",
+                    inputPath,
+                    String(err),
+                  );
+                  fs.writeFileSync(outputPath, "");
+                }
                 next();
               });
           } catch (e) {
@@ -239,10 +247,29 @@ const run = async (options: PinterestOptions) => {
 
   const dbPins = db.prepare("SELECT * FROM data").all() as PinDbRow[];
 
+  let recentPinIdsByBoard: Map<string, string[]> | undefined;
+  if (options.appendOnly) {
+    log.info("appendOnly mode, will stop at known pins");
+    recentPinIdsByBoard = new Map();
+    const recentPinsQuery = db.prepare(
+      "SELECT pinid FROM data WHERE board = ? ORDER BY createdat DESC LIMIT 10",
+    );
+    const boards = db.prepare("SELECT DISTINCT board FROM data").all() as {
+      board: string;
+    }[];
+    for (const { board } of boards) {
+      const pins = recentPinsQuery.all(board) as { pinid: string }[];
+      recentPinIdsByBoard.set(
+        board,
+        pins.map((p) => p.pinid),
+      );
+    }
+  }
+
   const USE_PERSISTED_CRAWLED_DATA = false;
   const crawledPins: CrawledPin[] = USE_PERSISTED_CRAWLED_DATA
     ? require(CRAWLED_DATA_PATH)
-    : await crawlBoards(options);
+    : await crawlBoards(options, recentPinIdsByBoard);
 
   if (crawledPins.length === 0) {
     log.warn("0 crawled pins, exiting");
@@ -264,15 +291,15 @@ const run = async (options: PinterestOptions) => {
     return (search.get(pinid) as { count: number }).count === 0;
   });
 
-  const removedPins = dbPins.filter(
-    ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
-  );
-
-  log.info(
-    `all pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
-  );
-
   if (!options.appendOnly) {
+    const removedPins = dbPins.filter(
+      ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
+    );
+
+    log.info(
+      `crawled pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
+    );
+
     const pinidsToRemove = await processRemovedPins(
       removedPins,
       options.concurrency,
@@ -284,7 +311,9 @@ const run = async (options: PinterestOptions) => {
 
     removePins(pinidsToRemove);
   } else {
-    log.info("appendOnly mode enabled, skipping removal of pins");
+    log.info(
+      `crawled pins: ${crawledPins.length} / new pins: ${newPins.length}`,
+    );
   }
 
   const newPinsWithMetadata = await crawlPinMetadata(options, newPins);

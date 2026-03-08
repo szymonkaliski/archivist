@@ -121,6 +121,7 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
 const crawlBoard = async (
   page: any,
   boardUrl: string,
+  knownPinIds?: string[],
 ): Promise<CrawledPin[]> => {
   log.info("crawling board %s", boardUrl);
 
@@ -133,19 +134,29 @@ const crawlBoard = async (
 
   await sleep(2000);
 
+  const knownIdsJson = JSON.stringify(knownPinIds ?? []);
+
   // string-based evaluate to avoid tsx __name injection in browser context
   const scrollResult = await page.evaluate(`(()=>{
+    var knownIds = new Set(${knownIdsJson});
     return new Promise((resolve) => {
       var lastScrollPosition = 0;
       var allPins = {};
       var scrollDown = () => {
         window.scrollTo(0, window.scrollY + 10);
         setTimeout(() => {
+          var foundKnown = false;
           Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach((pin) => {
+            if (foundKnown) return;
             var a = pin.querySelector("a");
             var img = pin.querySelector("img");
             if (a && img) {
               var url = a.href;
+              if (allPins[url]) return;
+              if (knownIds.size > 0 && knownIds.has(url.split("/").slice(-2, -1)[0])) {
+                foundKnown = true;
+                return;
+              }
               var src = img.src;
               var srcset = img.srcset;
               var alt = img.alt;
@@ -154,7 +165,10 @@ const crawlBoard = async (
               console.log("[archivist-pinterest-crawl]", "no a/img for", pin);
             }
           });
-          if (window.scrollY === lastScrollPosition) {
+          if (foundKnown) {
+            console.log("[archivist-pinterest-crawl]", "early stop: found known pin");
+            resolve(Object.values(allPins));
+          } else if (window.scrollY === lastScrollPosition) {
             resolve(Object.values(allPins));
           } else {
             lastScrollPosition = window.scrollY;
@@ -261,6 +275,7 @@ const createBrowser = async (options: PinterestOptions) => {
 
 export const crawlBoards = async (
   options: PinterestOptions,
+  recentPinIdsByBoard?: Map<string, string[]>,
 ): Promise<CrawledPin[]> => {
   const { browser, page } = await createBrowser(options);
 
@@ -272,8 +287,14 @@ export const crawlBoards = async (
   return new Promise((resolve) => {
     async.mapSeries(
       boards,
-      (board: string, callback: (err: null, pins: CrawledPin[]) => void) =>
-        crawlBoard(page, board).then((pins) => {
+      (board: string, callback: (err: null, pins: CrawledPin[]) => void) => {
+        const boardName = chain(board)
+          .split("/")
+          .takeRight(2)
+          .first()
+          .value() as string;
+        const knownPinIds = recentPinIdsByBoard?.get(boardName);
+        return crawlBoard(page, board, knownPinIds).then((pins) => {
           log.info("board pins: %s %d", board, pins.length);
 
           callback(
@@ -287,7 +308,8 @@ export const crawlBoards = async (
                 .value() as string,
             })),
           );
-        }),
+        });
+      },
       (_err: any, res: any) => {
         browser.close().then(() => {
           resolve(flatten(res as CrawledPin[][]));
