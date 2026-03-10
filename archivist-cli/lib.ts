@@ -42,8 +42,9 @@ const loadCrawler = (name: string): Promise<any> => {
 };
 
 const fetch = () => {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<void>((resolve) => {
     const entries = Object.entries(loadConfig());
+    const errors: string[] = [];
 
     async.eachLimit(
       entries,
@@ -54,13 +55,21 @@ const fetch = () => {
             crawler(config)
               .fetch()
               .then(() => callback())
-              .catch((e: any) => callback(`[${name}] fetching error ${e}`)),
+              .catch((e: any) => {
+                log.error(`[${name}] fetching error ${e}`);
+                errors.push(name);
+                callback();
+              }),
           )
-          .catch((e: any) => callback(`[${name}] fetching error ${e}`));
+          .catch((e: any) => {
+            log.error(`[${name}] fetching error ${e}`);
+            errors.push(name);
+            callback();
+          });
       },
-      (err: any) => {
-        if (err) {
-          return reject(err);
+      () => {
+        if (errors.length > 0) {
+          log.warn(`${errors.length} crawler(s) failed: ${errors.join(", ")}`);
         }
 
         resolve();
@@ -70,7 +79,9 @@ const fetch = () => {
 };
 
 const search = (query: string, limit?: number) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    const errors: string[] = [];
+
     async.map(
       Object.entries(loadConfig()),
       (
@@ -82,13 +93,21 @@ const search = (query: string, limit?: number) => {
             const queryFn = crawlerQuery.default || crawlerQuery;
             queryFn(config, query, limit)
               .then((result: any) => callback(null, result))
-              .catch((e: any) => callback(`[${name}] search error ${e}`));
+              .catch((e: any) => {
+                log.error(`[${name}] search error ${e}`);
+                errors.push(name);
+                callback(null, []);
+              });
           })
-          .catch((e: any) => callback(`[${name}] search error ${e}`));
+          .catch((e: any) => {
+            log.error(`[${name}] search error ${e}`);
+            errors.push(name);
+            callback(null, []);
+          });
       },
-      (err: any, result: any) => {
-        if (err) {
-          return reject(err);
+      (_err: any, result: any) => {
+        if (errors.length > 0) {
+          log.warn(`${errors.length} crawler(s) failed: ${errors.join(", ")}`);
         }
 
         const sortedResult = chain(result)
