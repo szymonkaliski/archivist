@@ -158,7 +158,8 @@ const tryArchiveToday = async (link: string): Promise<string | null> => {
     const res = await globalThis.fetch(`${ARCHIVE_TODAY_BASE}${link}`, {
       redirect: "manual",
       headers: {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       },
     });
     if (res.status >= 300 && res.status < 400) {
@@ -225,40 +226,50 @@ const run = async (links: PinboardLink[], concurrency = 10) => {
     acceptInsecureCerts: true,
   });
 
-  return new Promise((resolve, reject) => {
-    async.mapLimit(
-      links,
-      concurrency,
-      (link: PinboardLink, callback: (err: any, result?: any) => void) => {
-        savePage(browser, link.href)
-          .then(async (result): Promise<void> => {
-            if (result.kind === "permanently_failed") {
-              callback(null, { kind: "permanently_failed", link } satisfies FetcherResult);
-              return;
-            }
+  try {
+    return await new Promise((resolve, reject) => {
+      async.mapLimit(
+        links,
+        concurrency,
+        (link: PinboardLink, callback: (err: any, result?: any) => void) => {
+          savePage(browser, link.href)
+            .then(async (result): Promise<void> => {
+              if (result.kind === "permanently_failed") {
+                callback(null, {
+                  kind: "permanently_failed",
+                  link,
+                } satisfies FetcherResult);
+                return;
+              }
 
-            const fulltext = result.paths.frozen
-              ? await getFulltext(path.join(FROZEN_PATH, result.paths.frozen))
-              : "";
+              const fulltext = result.paths.frozen
+                ? await getFulltext(path.join(FROZEN_PATH, result.paths.frozen))
+                : "";
 
-            callback(null, { kind: "saved", link, fulltext, paths: result.paths } satisfies FetcherResult);
-          })
-          .catch((e) => {
-            log.error("uncaught error %s %s", link.href, e.toString());
-            callback(null, null);
-          });
-      },
-      (err: any, res: any) => {
-        browser.close().then(() => {
+              callback(null, {
+                kind: "saved",
+                link,
+                fulltext,
+                paths: result.paths,
+              } satisfies FetcherResult);
+            })
+            .catch((e) => {
+              log.error("uncaught error %s %s", link.href, e.toString());
+              callback(null, null);
+            });
+        },
+        (err: any, res: any) => {
           if (err) {
             reject(err);
           } else {
             resolve(res);
           }
-        });
-      },
-    );
-  });
+        },
+      );
+    });
+  } finally {
+    await browser.close();
+  }
 };
 
 export default run;

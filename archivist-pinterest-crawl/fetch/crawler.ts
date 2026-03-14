@@ -279,44 +279,51 @@ export const crawlBoards = async (
 ): Promise<CrawledPin[]> => {
   const { browser, page } = await createBrowser(options);
 
-  const boards = await crawlProfile(
-    page,
-    ROOT + "/" + options.profile + "/boards",
-  );
-
-  return new Promise((resolve) => {
-    async.mapSeries(
-      boards,
-      (board: string, callback: (err: null, pins: CrawledPin[]) => void) => {
-        const boardName = chain(board)
-          .split("/")
-          .takeRight(2)
-          .first()
-          .value() as string;
-        const knownPinIds = recentPinIdsByBoard?.get(boardName);
-        return crawlBoard(page, board, knownPinIds).then((pins) => {
-          log.info("board pins: %s %d", board, pins.length);
-
-          callback(
-            null,
-            pins.map((pin) => ({
-              ...pin,
-              board: chain(board)
-                .split("/")
-                .takeRight(2)
-                .first()
-                .value() as string,
-            })),
-          );
-        });
-      },
-      (_err: any, res: any) => {
-        browser.close().then(() => {
-          resolve(flatten(res as CrawledPin[][]));
-        });
-      },
+  try {
+    const boards = await crawlProfile(
+      page,
+      ROOT + "/" + options.profile + "/boards",
     );
-  });
+
+    return await new Promise((resolve) => {
+      async.mapSeries(
+        boards,
+        (board: string, callback: (err: null, pins: CrawledPin[]) => void) => {
+          const boardName = chain(board)
+            .split("/")
+            .takeRight(2)
+            .first()
+            .value() as string;
+          const knownPinIds = recentPinIdsByBoard?.get(boardName);
+          return crawlBoard(page, board, knownPinIds)
+            .then((pins) => {
+              log.info("board pins: %s %d", board, pins.length);
+
+              callback(
+                null,
+                pins.map((pin) => ({
+                  ...pin,
+                  board: chain(board)
+                    .split("/")
+                    .takeRight(2)
+                    .first()
+                    .value() as string,
+                })),
+              );
+            })
+            .catch((e) => {
+              log.error("error crawling board %s: %s", board, e.message);
+              callback(null, []);
+            });
+        },
+        (_err: any, res: any) => {
+          resolve(flatten(res as CrawledPin[][]));
+        },
+      );
+    });
+  } finally {
+    await browser.close();
+  }
 };
 
 export const crawlPinMetadata = async (
@@ -325,28 +332,30 @@ export const crawlPinMetadata = async (
 ): Promise<CrawledPinWithMetadata[]> => {
   const { browser } = await createBrowser(options);
 
-  return new Promise((resolve) => {
-    async.mapLimit(
-      pins,
-      options.concurrency || 4,
-      (
-        pin: CrawledPin,
-        callback: (err: null, result: CrawledPinWithMetadata) => void,
-      ) => {
-        crawlPin(browser, pin.url)
-          .then(({ link, title, text, date }) => {
-            callback(null, { ...pin, title, text, link, createdAt: date });
-          })
-          .catch((e) => {
-            log.error("error crawling pin %s: %s", pin.url, e.message);
-            callback(null, { ...pin });
-          });
-      },
-      (_err: any, res: any) => {
-        browser.close().then(() => {
+  try {
+    return await new Promise((resolve) => {
+      async.mapLimit(
+        pins,
+        options.concurrency || 4,
+        (
+          pin: CrawledPin,
+          callback: (err: null, result: CrawledPinWithMetadata) => void,
+        ) => {
+          crawlPin(browser, pin.url)
+            .then(({ link, title, text, date }) => {
+              callback(null, { ...pin, title, text, link, createdAt: date });
+            })
+            .catch((e) => {
+              log.error("error crawling pin %s: %s", pin.url, e.message);
+              callback(null, { ...pin });
+            });
+        },
+        (_err: any, res: any) => {
           resolve(res as CrawledPinWithMetadata[]);
-        });
-      },
-    );
-  });
+        },
+      );
+    });
+  } finally {
+    await browser.close();
+  }
 };

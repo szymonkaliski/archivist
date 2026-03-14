@@ -32,7 +32,13 @@ if (TYPE === "config") {
 
   spawn(editor, [CONFIG_FILE], { stdio: "inherit" });
 } else if (TYPE === "fetch") {
-  fetch();
+  fetch().then(
+    () => process.exit(0),
+    (e) => {
+      console.error(e);
+      process.exit(1);
+    },
+  );
 } else if (TYPE === "search" || TYPE === "query") {
   search(args._[1] as string, args.limit as number | undefined).then(
     (result: any) => {
@@ -41,6 +47,11 @@ if (TYPE === "config") {
       } else {
         result.forEach((d: any) => console.log(JSON.stringify(d))).value();
       }
+      process.exit(0);
+    },
+    (e) => {
+      console.error(e);
+      process.exit(1);
     },
   );
 } else {
