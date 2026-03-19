@@ -1,5 +1,6 @@
 import envPaths from "env-paths";
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 
 import type { PinterestOptions } from "../index";
@@ -60,10 +61,18 @@ const query = async (
 
   return search.map((d: any) => {
     const thumbname = path.parse(d.filename).name + ".png";
+    const imgPath = path.join(ASSETS_PATH, d.filename);
+    const thumbPath = path.join(THUMBS_PATH, thumbname);
+
+    let stat: { size: number } | undefined;
+    try {
+      stat = fs.statSync(thumbPath);
+    } catch {}
+    const thumbOk = stat !== undefined && stat.size > 0;
 
     return {
-      img: path.join(ASSETS_PATH, d.filename),
-      thumbImg: path.join(THUMBS_PATH, thumbname),
+      img: imgPath,
+      thumbImg: thumbOk ? thumbPath : imgPath,
 
       link: d.link || d.pinurl,
       id: d.pinid,

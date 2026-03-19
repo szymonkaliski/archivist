@@ -181,18 +181,38 @@ const createThumbnails = async (db: Database.Database, concurrency = 10) => {
           log.info(`making thumbnail for ${inputPath} -> ${outputPath}`);
 
           try {
-            sharp(inputPath)
-              .resize(THUMB_SIZE)
-              .png()
-              .toFile(outputPath, (err: any) => {
-                if (err) {
-                  log.error(
-                    "error making thumbnail for: %s %s",
-                    inputPath,
-                    String(err),
-                  );
-                  fs.writeFileSync(outputPath, "");
+            const img = sharp(inputPath);
+            img
+              .metadata()
+              .then((meta) => {
+                const w = meta.width || 0;
+                const h = meta.height || 0;
+                if (w <= THUMB_SIZE && h <= THUMB_SIZE) {
+                  fs.copyFileSync(inputPath, outputPath);
+                  next();
+                } else {
+                  sharp(inputPath)
+                    .resize(THUMB_SIZE)
+                    .png()
+                    .toFile(outputPath, (err: any) => {
+                      if (err) {
+                        log.error(
+                          "error making thumbnail for: %s %s",
+                          inputPath,
+                          String(err),
+                        );
+                      }
+                      next();
+                    });
                 }
+              })
+              .catch((e) => {
+                log.error(
+                  "error reading metadata for: %s %s",
+                  inputPath,
+                  String(e),
+                );
+                fs.copyFileSync(inputPath, outputPath);
                 next();
               });
           } catch (e) {
