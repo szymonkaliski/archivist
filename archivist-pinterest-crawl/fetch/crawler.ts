@@ -63,47 +63,78 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     text: string | undefined,
     date: string | undefined;
   try {
-    // string-based evaluate to avoid tsx __name injection in browser context
+    // extract from Relay completed request data
+    // falls back to DOM selectors and __PWS_INITIAL_PROPS__/__PWS_DATA__
     ({ link, title, text, date } = await page.evaluate(`(()=>{
-      var getLink = () => {
-        var link = document.querySelector(".linkModuleActionButton");
-        if (!link) return undefined;
-        return link.href || link.parentNode.href;
+      var fromRelay = () => {
+        for (var s of document.querySelectorAll("script")) {
+          var t = s.textContent || "";
+          if (!t.includes("__PWS_RELAY_REGISTER_COMPLETED_REQUEST__")) continue;
+          if (!t.includes("createdAt")) continue;
+          var match = t.match(/window\\.__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\\("[^"]+",\\s*({.+})\\)/);
+          if (!match) continue;
+
+          try {
+            var data = JSON.parse(match[1]);
+            var pin = data && data.data && data.data.v3GetPinQueryv2 && data.data.v3GetPinQueryv2.data;
+            if (pin && pin.createdAt) {
+              return {
+                link: pin.link || undefined,
+                title: pin.gridTitle || pin.richMetadata && pin.richMetadata.title || undefined,
+                text: pin.description || pin.gridDescription || undefined,
+                date: pin.createdAt || undefined,
+              };
+            }
+          } catch (e) {}
+        }
+        return null;
       };
-      var getTitle = () => {
-        var titleCard = document.querySelector(".CloseupTitleCard h1");
-        return titleCard ? titleCard.textContent : undefined;
-      };
-      var getText = () => {
-        var pinText = document.querySelector("[data-test-id=safeTextDirection]");
-        return pinText ? pinText.textContent : undefined;
-      };
-      var getDate = () => {
+
+      var fromDom = () => {
+        var link, title, text, date;
+        var linkEl = document.querySelector(".linkModuleActionButton");
+        if (linkEl) link = linkEl.href || linkEl.parentNode.href;
+
+        var titleEl = document.querySelector(".CloseupTitleCard h1");
+        if (titleEl) title = titleEl.textContent;
+
+        var textEl = document.querySelector("[data-test-id=safeTextDirection]");
+        if (textEl) text = textEl.textContent;
+
         try {
           var el = document.getElementById("__PWS_INITIAL_PROPS__");
           if (el) {
             var pins = JSON.parse(el.textContent).initialReduxState.pins;
-            return Object.values(pins).map(p => p.created_at)[0];
+            date = Object.values(pins).map(function(p) { return p.created_at; })[0];
           }
         } catch (e) {}
-        try {
-          var el2 = document.getElementById("__PWS_DATA__");
-          if (el2) {
-            var data = JSON.parse(el2.textContent);
-            if (data.props && data.props.initialReduxState && data.props.initialReduxState.pins) {
-              return Object.values(data.props.initialReduxState.pins).map(p => p.created_at)[0];
+
+        if (!date) {
+          try {
+            var el2 = document.getElementById("__PWS_DATA__");
+            if (el2) {
+              var data = JSON.parse(el2.textContent);
+              if (data.props && data.props.initialReduxState && data.props.initialReduxState.pins) {
+                date = Object.values(data.props.initialReduxState.pins).map(function(p) { return p.created_at; })[0];
+              }
             }
-          }
-        } catch (e) {}
-        return undefined;
+          } catch (e) {}
+        }
+        return { link: link, title: title, text: text, date: date };
       };
-      var getData = () => ({ link: getLink(), title: getTitle(), date: getDate(), text: getText() });
-      return new Promise((resolve) => {
-        var data = getData();
-        if (data.link || data.title || data.date) {
+
+      return new Promise(function(resolve) {
+        var data = fromRelay();
+        if (data) {
           resolve(data);
+          return;
+        }
+
+        var dom = fromDom();
+        if (dom.link || dom.title || dom.date) {
+          resolve(dom);
         } else {
-          setTimeout(() => { resolve(getData()); }, 1000);
+          setTimeout(function() { resolve(fromRelay() || fromDom()); }, 1000);
         }
       });
     })()`));
