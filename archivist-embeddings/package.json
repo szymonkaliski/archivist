@@ -1,0 +1,16 @@
+{
+  "name": "archivist-embeddings",
+  "version": "1.0.0",
+  "license": "MIT",
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.1",
+    "archivist-logger": "file:../archivist-logger",
+    "better-sqlite3": "^12.6.2",
+    "env-paths": "^4.0.0",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.3.0"
+  }
+}
