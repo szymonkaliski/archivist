@@ -2,6 +2,7 @@ import envPaths from "env-paths";
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
+import { loadEmbeddings } from "archivist-embeddings";
 
 import type { PinterestOptions } from "../index";
 
@@ -90,5 +91,8 @@ const query = async (
     };
   });
 };
+
+export const getEmbeddings = () =>
+  loadEmbeddings(path.join(DATA_PATH, "data.db"));
 
 export default query;

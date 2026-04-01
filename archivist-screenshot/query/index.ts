@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
+import { loadEmbeddings } from "archivist-embeddings";
 
 import { THUMBS_PATH, DB_PATH } from "../consts";
 import type { ScreenshotOptions } from "../index";
@@ -22,17 +23,7 @@ export interface SearchResult {
   };
 }
 
-const first = <T>(xs: T[] | undefined): T | undefined => {
-  if (!xs) {
-    return;
-  }
-
-  return xs[0];
-};
-
-const isMac = process.platform === "darwin";
-
-const queryLinux = async (
+const query = async (
   _options: ScreenshotOptions,
   text?: string,
   limit?: number,
@@ -76,7 +67,7 @@ const queryLinux = async (
     return {
       img: d.filepath,
       thumbImg: hasThumb ? thumbImg : d.filepath,
-      id: d.filepath,
+      id: d.id,
       link: d.link || undefined,
       time: d.time,
       width: d.width,
@@ -89,83 +80,6 @@ const queryLinux = async (
   });
 };
 
-const queryMac = (
-  options: ScreenshotOptions,
-  text = "Screenshot",
-  limit?: number,
-): Promise<SearchResult[]> => {
-  const mdfind = require("mdfind");
+export const getEmbeddings = () => loadEmbeddings(DB_PATH);
 
-  const response = mdfind({
-    query: text,
-    attributes: [
-      "kMDItemFSCreationDate",
-      "kMDItemFinderComment",
-      "kMDItemWhereFroms",
-      "kMDItemPixelHeight",
-      "kMDItemPixelWidth",
-    ],
-    limit,
-    directories: [options.directory],
-  });
-
-  const data: any[] = [];
-
-  return new Promise((resolve) => {
-    response.output.on("data", (d: any) => data.push(d));
-    response.output.on("end", () =>
-      resolve(
-        data.map((d: any) => {
-          const width = parseInt(d.kMDItemPixelWidth);
-          const height = parseInt(d.kMDItemPixelHeight);
-
-          const time = d.kMDItemFSCreationDate
-            .replace(" +0000", "")
-            .replace(/-/g, "/");
-
-          const filename = path.basename(d.kMDItemPath);
-          const thumbname = path.parse(filename).name + ".png";
-          const thumbImg = path.join(THUMBS_PATH, thumbname);
-          const hasThumb = fs.existsSync(thumbImg);
-          const imgPath = d.kMDItemPath;
-
-          let link: string | undefined = first(d.kMDItemWhereFroms) as
-            | string
-            | undefined;
-          let note = d.kMDItemFinderComment;
-
-          if (!link && note) {
-            const firstLine = note.split("\n")[0];
-            if (
-              firstLine.startsWith("http://") ||
-              firstLine.startsWith("https://") ||
-              firstLine.startsWith("file://")
-            ) {
-              link = firstLine;
-              note = note.slice(firstLine.length + 1).replace(/^\n/, "");
-            }
-          }
-
-          return {
-            img: imgPath,
-            thumbImg: hasThumb ? thumbImg : imgPath,
-            id: d.kMDItemPath,
-            link,
-            time,
-
-            width,
-            height,
-
-            meta: {
-              source: "screenshot",
-              note,
-            },
-          };
-        }),
-      ),
-    );
-  });
-};
-
-export default (options: ScreenshotOptions, text?: string, limit?: number) =>
-  isMac ? queryMac(options, text, limit) : queryLinux(options, text, limit);
+export default query;

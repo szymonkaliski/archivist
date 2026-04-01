@@ -9,6 +9,7 @@ import path from "path";
 import sharp from "sharp";
 import { chain } from "lodash";
 
+import { generateEmbeddings } from "archivist-embeddings";
 import { createLogger } from "archivist-logger";
 import { crawlBoards, crawlPinMetadata } from "./crawler";
 import fetcher from "./fetcher";
@@ -369,6 +370,28 @@ const run = async (options: PinterestOptions) => {
   await createThumbnails(db, options.concurrency);
 
   log.info(`inserted pins: ${finalPins.length} (of ${newPins.length})`);
+
+  const allPins = db
+    .prepare("SELECT pinid, filename, title, text, link, board FROM data")
+    .all() as {
+    pinid: string;
+    filename: string;
+    title: string | null;
+    text: string | null;
+    link: string | null;
+    board: string | null;
+  }[];
+
+  await generateEmbeddings({
+    db,
+    items: allPins.map((r) => ({
+      id: r.pinid,
+      thumbPath: path.join(THUMBS_PATH, path.parse(r.filename).name + ".png"),
+      text: [r.title, r.text, r.board, r.link].filter(Boolean).join(" "),
+    })),
+  });
+
+  db.close();
 };
 
 export default run;

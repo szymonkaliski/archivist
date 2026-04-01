@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { default as Pinboard } from "node-pinboard";
 import { isString } from "lodash";
 
+import { generateEmbeddings } from "archivist-embeddings";
 import { createLogger } from "archivist-logger";
 import fetcher, { type PinboardLink, type FetcherResult } from "./fetcher";
 import type { PinboardOptions } from "../index";
@@ -201,10 +202,14 @@ const run = async (options: PinboardOptions) => {
 
   removeLinks(hashesToRemove);
 
-  const allFetched = (await fetcher(newLinks, options.concurrency) as (FetcherResult | null)[]).filter((r): r is FetcherResult => r !== null);
+  const allFetched = (
+    (await fetcher(newLinks, options.concurrency)) as (FetcherResult | null)[]
+  ).filter((r): r is FetcherResult => r !== null);
 
   const finalLinks = allFetched
-    .filter((r): r is Extract<FetcherResult, { kind: "saved" }> => r.kind === "saved")
+    .filter(
+      (r): r is Extract<FetcherResult, { kind: "saved" }> => r.kind === "saved",
+    )
     .map((r) => ({
       href: r.link.href,
       hash: r.link.hash,
@@ -219,7 +224,10 @@ const run = async (options: PinboardOptions) => {
     }));
 
   const failedLinks = allFetched
-    .filter((r): r is Extract<FetcherResult, { kind: "permanently_failed" }> => r.kind === "permanently_failed")
+    .filter(
+      (r): r is Extract<FetcherResult, { kind: "permanently_failed" }> =>
+        r.kind === "permanently_failed",
+    )
     .map((r) => ({
       href: r.link.href,
       hash: r.link.hash,
@@ -241,7 +249,9 @@ const run = async (options: PinboardOptions) => {
   insertLinks(failedLinks);
 
   if (failedLinks.length > 0) {
-    log.warn(`marked ${failedLinks.length} links as permanently failed (offline, no archive found)`);
+    log.warn(
+      `marked ${failedLinks.length} links as permanently failed (offline, no archive found)`,
+    );
   }
 
   await createThumbnails(db, options.concurrency);
@@ -249,6 +259,32 @@ const run = async (options: PinboardOptions) => {
   log.info(
     `inserted links: ${finalLinks.length} (of ${newLinks.length} new links)`,
   );
+
+  const dbRows = db
+    .prepare(
+      "SELECT hash, screenshot, description, extended, tags, href FROM data WHERE screenshot IS NOT NULL",
+    )
+    .all() as {
+    hash: string;
+    screenshot: string;
+    description: string;
+    extended: string;
+    tags: string;
+    href: string;
+  }[];
+
+  await generateEmbeddings({
+    db,
+    items: dbRows.map((r) => ({
+      id: r.hash,
+      thumbPath: path.join(THUMBS_PATH, path.parse(r.screenshot).name + ".png"),
+      text: [r.description, r.extended, r.tags, r.href]
+        .filter(Boolean)
+        .join(" "),
+    })),
+  });
+
+  db.close();
 };
 
 export default run;

@@ -7,12 +7,12 @@
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "dependencies": {
+    "archivist-embeddings": "file:../archivist-embeddings",
     "archivist-logger": "file:../archivist-logger",
     "async": "^3.2.6",
     "better-sqlite3": "^12.6.2",
     "bplist-parser": "^0.3.2",
     "env-paths": "^4.0.0",
-    "mdfind": "^1.0.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {

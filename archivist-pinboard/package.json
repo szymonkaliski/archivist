@@ -10,6 +10,7 @@
   "author": "Szymon Kaliski <hi@szymonkaliski.com> (http://szymonkaliski.com)",
   "license": "MIT",
   "dependencies": {
+    "archivist-embeddings": "file:../archivist-embeddings",
     "archivist-logger": "file:../archivist-logger",
     "async": "^3.2.6",
     "better-sqlite3": "^12.6.2",

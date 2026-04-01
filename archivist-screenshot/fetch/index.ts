@@ -1,11 +1,13 @@
 import Database from "better-sqlite3";
 import async from "async";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import { execFileSync } from "child_process";
-import * as bplist from "bplist-parser";
+import bplist from "bplist-parser";
 
+import { generateEmbeddings } from "archivist-embeddings";
 import { THUMBS_PATH, DB_PATH } from "../consts";
 import { createLogger } from "archivist-logger";
 import type { ScreenshotOptions } from "../index";
@@ -16,13 +18,18 @@ const isMac = process.platform === "darwin";
 
 if (!isMac) {
   try {
-    execFileSync("getfattr", ["--version"], { stdio: "pipe" });
+    execFileSync("which", ["getfattr"], { stdio: "pipe" });
   } catch {
-    throw new Error("getfattr not found — install 'attr' package");
+    log.warn(
+      "getfattr not found — xattr extraction will be unavailable (install the 'attr' package)",
+    );
   }
 }
 
 const THUMB_SIZE = 400;
+
+const makeId = (filepath: string): string =>
+  crypto.createHash("md5").update(filepath).digest("hex").slice(0, 12);
 
 const SETUP_STATEMENTS = [
   `
@@ -33,7 +40,8 @@ const SETUP_STATEMENTS = [
       width INTEGER,
       height INTEGER,
       link TEXT,
-      note TEXT
+      note TEXT,
+      id TEXT NOT NULL
     )
   `,
   `
@@ -56,6 +64,7 @@ interface ScreenshotDbRow {
   height: number;
   link: string | null;
   note: string | null;
+  id: string;
 }
 
 const parseTimeFromFilename = (filename: string): string | undefined => {
@@ -73,13 +82,20 @@ const parseTimeFromFilename = (filename: string): string | undefined => {
 
 const readXattr = (filePath: string, key: string): any => {
   try {
-    const buf = execFileSync(
-      "getfattr",
-      ["-n", key, "--only-values", filePath],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
-
-    return bplist.parseBuffer(buf)[0];
+    if (isMac) {
+      const hex = execFileSync("xattr", ["-px", key, filePath], {
+        stdio: ["pipe", "pipe", "pipe"],
+      }).toString();
+      const buf = Buffer.from(hex.replace(/\s/g, ""), "hex");
+      return bplist.parseBuffer(buf)[0];
+    } else {
+      const buf = execFileSync(
+        "getfattr",
+        ["-n", key, "--only-values", filePath],
+        { stdio: ["pipe", "pipe", "pipe"] },
+      );
+      return bplist.parseBuffer(buf)[0];
+    }
   } catch {
     return undefined;
   }
@@ -110,12 +126,12 @@ const parseComment = (
   };
 };
 
-const extractXattrComment = (filepath: string) => {
-  const comment = readXattr(
-    filepath,
-    "user.com.dropbox.apple.metadata:kMDItemFinderComment",
-  );
+const COMMENT_XATTR = isMac
+  ? "com.apple.metadata:kMDItemFinderComment"
+  : "user.com.dropbox.apple.metadata:kMDItemFinderComment";
 
+const extractXattrComment = (filepath: string) => {
+  const comment = readXattr(filepath, COMMENT_XATTR);
   return parseComment(comment);
 };
 
@@ -153,6 +169,7 @@ const extractMetadata = async (
     height: height!,
     link,
     note,
+    id: makeId(filepath),
   };
 };
 
@@ -212,8 +229,8 @@ const populateDb = async (options: ScreenshotOptions) => {
     });
 
     const insert = db.prepare(
-      `INSERT INTO data (filepath, filename, time, width, height, link, note)
-       VALUES (:filepath, :filename, :time, :width, :height, :link, :note)`,
+      `INSERT INTO data (filepath, filename, time, width, height, link, note, id)
+       VALUES (:filepath, :filename, :time, :width, :height, :link, :note, :id)`,
     );
 
     const insertAll = db.transaction((rows: ScreenshotDbRow[]) => {
@@ -321,10 +338,34 @@ const createThumbnails = (options: ScreenshotOptions) => {
   });
 };
 
-export default async (options: ScreenshotOptions) => {
-  if (!isMac) {
-    await populateDb(options);
-  }
+const embedItems = async () => {
+  const db = new Database(DB_PATH);
+  const rows = db
+    .prepare("SELECT id, filepath, link, note FROM data")
+    .all() as {
+    id: string;
+    filepath: string;
+    link: string | null;
+    note: string | null;
+  }[];
 
+  await generateEmbeddings({
+    db,
+    items: rows.map((r) => ({
+      id: r.id,
+      thumbPath: path.join(
+        THUMBS_PATH,
+        path.parse(path.basename(r.filepath)).name + ".png",
+      ),
+      text: [r.note, r.link].filter(Boolean).join(" "),
+    })),
+  });
+
+  db.close();
+};
+
+export default async (options: ScreenshotOptions) => {
+  await populateDb(options);
   await createThumbnails(options);
+  await embedItems();
 };
