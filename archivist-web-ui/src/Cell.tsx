@@ -7,12 +7,18 @@ const shorten = (text: string, length: number) =>
 interface CellProps {
   item: SearchResult;
   onTagClick: (tag: string) => void;
+  onDetail?: (id: string) => void;
+  fullImage?: boolean;
 }
 
-export const Cell = ({ item, onTagClick }: CellProps) => {
+export const Cell = ({ item, onTagClick, onDetail, fullImage }: CellProps) => {
   return (
     <div className="cell">
-      <img loading="lazy" src={item.thumbImg} alt={item.meta.title || ""} />
+      <img
+        loading="lazy"
+        src={fullImage ? item.img : item.thumbImg}
+        alt={item.meta.title || ""}
+      />
       <div className="cell-overlay">
         {(item.meta.title || item.link) && (
           <a
@@ -49,16 +55,27 @@ export const Cell = ({ item, onTagClick }: CellProps) => {
 
         <div className="cell-footer">
           <div className="cell-actions">
-            {item.link && (
-              <a href={item.link} target="_blank" rel="noopener noreferrer">
-                src
+            {onDetail && (
+              <a
+                href={`/?q=detail:${item.id}`}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey) return;
+                  e.preventDefault();
+                  onDetail(item.id);
+                }}
+              >
+                detail
               </a>
             )}
             <a href={item.img} target="_blank" rel="noopener noreferrer">
-              img
+              full
             </a>
             {item.meta.static && (
-              <a href={item.meta.static} target="_blank" rel="noopener noreferrer">
+              <a
+                href={item.meta.static}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 html
               </a>
             )}

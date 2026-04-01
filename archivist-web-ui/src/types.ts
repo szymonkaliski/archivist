@@ -16,6 +16,7 @@ export interface SearchResult {
 }
 
 export interface PaginatedResponse {
+  item?: SearchResult;
   items: SearchResult[];
   total: number;
 }

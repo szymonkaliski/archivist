@@ -5,10 +5,19 @@ import async from "async";
 import { chain as lodashChain } from "lodash";
 import { createLogger } from "archivist-logger";
 import { loadConfig, loadCrawler } from "archivist-cli/lib";
+import { parseQuery } from "./src/query";
+import { loadAllEmbeddings, buildBM25Index, rankRelatedRRF } from "./ranking";
 
 const log = createLogger("web-ui");
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000");
+
+const DEFAULT_LIMIT = 400;
+
+const configKeyToSource = (key: string): string => {
+  const base = key.split("/").pop() || key;
+  return base.replace(/^archivist-/, "").replace(/-(crawl|fetch)$/, "");
+};
 
 const encodePath = (filePath: string): string =>
   Buffer.from(filePath).toString("base64url");
@@ -16,11 +25,20 @@ const encodePath = (filePath: string): string =>
 const decodePath = (encoded: string): string =>
   Buffer.from(encoded, "base64url").toString();
 
-const searchTolerant = (query?: string): Promise<any[]> => {
+const searchTolerant = (
+  textQuery?: string,
+  sourcesFilter?: string[],
+): Promise<any[]> => {
   return new Promise((resolve) => {
     const config = loadConfig();
+    const entries =
+      sourcesFilter && sourcesFilter.length > 0
+        ? Object.entries(config).filter(([name]) =>
+            sourcesFilter.includes(configKeyToSource(name)),
+          )
+        : Object.entries(config);
     async.map(
-      Object.entries(config),
+      entries,
       (
         [name, cfg]: [string, any],
         callback: (err: any, result?: any) => void,
@@ -28,7 +46,7 @@ const searchTolerant = (query?: string): Promise<any[]> => {
         loadCrawler(`${name}/query`)
           .then((crawlerQuery: any) => {
             const queryFn = crawlerQuery.default || crawlerQuery;
-            queryFn(cfg, query)
+            queryFn(cfg, textQuery)
               .then((result: any) => callback(null, result))
               .catch((e: any) => {
                 log.warn(`[${name}] search error: ${e}`);
@@ -62,8 +80,36 @@ const getCachedResults = async (query?: string): Promise<any[]> => {
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.items;
   }
-  const results = await searchTolerant(query);
-  const rewritten = results.map((item: any) => ({
+
+  const parsed = parseQuery(key);
+  const results = await searchTolerant(
+    parsed.text || undefined,
+    parsed.sources.length > 0 ? parsed.sources : undefined,
+  );
+
+  let filtered = results;
+  if (parsed.tags.length > 0) {
+    filtered = filtered.filter((d: any) => {
+      const itemTags: string[] = (d.meta?.tags || []).map((t: string) =>
+        t.toLowerCase(),
+      );
+      return parsed.tags.some((t) => itemTags.includes(t));
+    });
+  }
+  if (parsed.before) {
+    const beforeMs = new Date(parsed.before).getTime();
+    filtered = filtered.filter(
+      (d: any) => new Date(d.time).getTime() < beforeMs,
+    );
+  }
+  if (parsed.after) {
+    const afterMs = new Date(parsed.after).getTime();
+    filtered = filtered.filter(
+      (d: any) => new Date(d.time).getTime() >= afterMs,
+    );
+  }
+
+  const rewritten = filtered.map((item: any) => ({
     ...item,
     img: `/img/${encodePath(item.img)}`,
     thumbImg: `/img/${encodePath(item.thumbImg)}`,
@@ -75,15 +121,76 @@ const getCachedResults = async (query?: string): Promise<any[]> => {
     },
   }));
   resultCache.set(key, { items: rewritten, timestamp: Date.now() });
+
+  if (key === "") {
+    buildBM25Index(rewritten);
+  }
+
   return rewritten;
 };
 
+app.get("/api/sources", (_req, res) => {
+  const config = loadConfig();
+  res.json(Object.keys(config).map(configKeyToSource));
+});
+
 app.get("/api/search", async (req, res) => {
   const query = (req.query.q as string) || undefined;
-  const limit = parseInt(req.query.limit as string) || 100;
+  const limit = parseInt(req.query.limit as string) || DEFAULT_LIMIT;
   const offset = parseInt(req.query.offset as string) || 0;
 
   try {
+    const parsed = parseQuery(query || "");
+
+    if (parsed.detail) {
+      const textQuery = parsed.text || undefined;
+      const allResults = textQuery
+        ? await getCachedResults(textQuery)
+        : await getCachedResults();
+      const item =
+        allResults.find((r: any) => r.id === parsed.detail) ||
+        (await getCachedResults()).find((r: any) => r.id === parsed.detail);
+      if (!item) {
+        res.json({ item: null, items: [], total: 0 });
+        return;
+      }
+
+      let candidates = rankRelatedRRF(item, allResults, limit + 100);
+
+      if (parsed.sources.length > 0) {
+        candidates = candidates.filter((d: any) =>
+          parsed.sources.includes(d.meta?.source?.toLowerCase()),
+        );
+      }
+      if (parsed.tags.length > 0) {
+        candidates = candidates.filter((d: any) => {
+          const itemTags: string[] = (d.meta?.tags || []).map((t: string) =>
+            t.toLowerCase(),
+          );
+          return parsed.tags.some((t) => itemTags.includes(t));
+        });
+      }
+      if (parsed.before) {
+        const beforeMs = new Date(parsed.before).getTime();
+        candidates = candidates.filter(
+          (d: any) => new Date(d.time).getTime() < beforeMs,
+        );
+      }
+      if (parsed.after) {
+        const afterMs = new Date(parsed.after).getTime();
+        candidates = candidates.filter(
+          (d: any) => new Date(d.time).getTime() >= afterMs,
+        );
+      }
+
+      res.json({
+        item,
+        items: candidates.slice(offset, offset + limit),
+        total: candidates.length,
+      });
+      return;
+    }
+
     const results = await getCachedResults(query);
     res.json({
       items: results.slice(offset, offset + limit),
@@ -158,4 +265,5 @@ app.get("/{*path}", (_req, res, next) => {
 app.listen(PORT, () => {
   log.info(`listening on http://localhost:${PORT}`);
   getCachedResults().catch((e) => log.warn(`cache warm-up failed: ${e}`));
+  loadAllEmbeddings().catch((e) => log.warn(`embedding load failed: ${e}`));
 });

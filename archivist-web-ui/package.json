@@ -12,6 +12,7 @@
     "@types/async": "^3.2.25",
     "@types/lodash": "^4.17.24",
     "archivist-cli": "file:../archivist-cli",
+    "archivist-embeddings": "file:../archivist-embeddings",
     "archivist-logger": "file:../archivist-logger",
     "async": "^3.2.6",
     "dateformat": "^5.0.3",
@@ -19,7 +20,9 @@
     "lodash": "^4.17.23",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-hotkeys-hook": "^5.2.4"
+    "react-hotkeys-hook": "^5.2.4",
+    "wink-bm25-text-search": "^3.1.2",
+    "wink-nlp-utils": "^2.1.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

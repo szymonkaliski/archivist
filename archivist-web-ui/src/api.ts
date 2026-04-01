@@ -1,5 +1,7 @@
 import type { PaginatedResponse } from "./types";
 
+export const encodeId = (id: string): string => id;
+
 export const fetchResults = async (
   query?: string,
   offset = 0,

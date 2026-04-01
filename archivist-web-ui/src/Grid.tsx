@@ -11,30 +11,37 @@ interface GridProps {
   items: SearchResult[];
   total: number;
   onTagClick: (tag: string) => void;
+  onDetail?: (id: string) => void;
   loadMore: () => void;
 }
 
-export const Grid = ({ items, total, onTagClick, loadMore }: GridProps) => {
+export const Grid = ({
+  items,
+  total,
+  onTagClick,
+  onDetail,
+  loadMore,
+}: GridProps) => {
   const parentRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(4);
+  const [cellSize, setCellSize] = useState(280);
 
-  const updateColumns = useCallback(() => {
+  const updateLayout = useCallback(() => {
     if (!parentRef.current) return;
     const width = parentRef.current.clientWidth;
-    setColumnCount(Math.max(1, Math.floor(width / COLUMN_MIN_WIDTH)));
+    const cols = Math.max(2, Math.floor(width / COLUMN_MIN_WIDTH));
+    setColumnCount(cols);
+    setCellSize((width - GAP * (cols - 1)) / cols);
   }, []);
 
   useEffect(() => {
-    updateColumns();
-    const observer = new ResizeObserver(updateColumns);
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
     if (parentRef.current) observer.observe(parentRef.current);
     return () => observer.disconnect();
-  }, [updateColumns]);
+  }, [updateLayout]);
 
   const rowCount = Math.ceil(items.length / columnCount);
-  const cellSize = parentRef.current
-    ? (parentRef.current.clientWidth - GAP * (columnCount - 1)) / columnCount
-    : 280;
 
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -42,6 +49,10 @@ export const Grid = ({ items, total, onTagClick, loadMore }: GridProps) => {
     estimateSize: () => cellSize + GAP,
     overscan: 3,
   });
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [cellSize, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
   const lastVirtualRow = virtualItems[virtualItems.length - 1];
@@ -83,7 +94,14 @@ export const Grid = ({ items, total, onTagClick, loadMore }: GridProps) => {
               const itemIndex = virtualRow.index * columnCount + colIndex;
               const item = items[itemIndex];
               if (!item) return null;
-              return <Cell key={item.id} item={item} onTagClick={onTagClick} />;
+              return (
+                <Cell
+                  key={item.id}
+                  item={item}
+                  onTagClick={onTagClick}
+                  onDetail={onDetail}
+                />
+              );
             })}
           </div>
         ))}

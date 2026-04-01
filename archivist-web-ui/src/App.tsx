@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Grid } from "./Grid";
+import { Detail } from "./Detail";
 import { SearchBar } from "./SearchBar";
-import { fetchResults } from "./api";
+import { fetchResults, encodeId } from "./api";
+import { parseQuery, buildQuery } from "./query";
 import type { SearchResult } from "./types";
 
 const PAGE_SIZE = 100;
@@ -13,29 +15,54 @@ const getInitialQuery = () => {
 
 export const App = () => {
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [detailItem, setDetailItem] = useState<SearchResult | null>(null);
   const [total, setTotal] = useState(0);
-  const initialQuery = getInitialQuery();
-  const [query, setQuery] = useState(initialQuery);
-  const [isSearching, setIsSearching] = useState(!!initialQuery);
+  const [query, setQuery] = useState(getInitialQuery);
+  const [placeholder, setPlaceholder] = useState("search...");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastQueryRef = useRef("");
   const loadingRef = useRef(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = () => {
+      const q = new URLSearchParams(window.location.search).get("q") || "";
+      setQuery(q);
+    };
+    window.addEventListener("popstate", handler);
+    return () => window.removeEventListener("popstate", handler);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/sources")
+      .then((r) => r.json())
+      .then((sources: string[]) => {
+        if (sources.length > 0) {
+          setPlaceholder(
+            `search… detail:… source:${sources[0]} tag:… before:… after:…`,
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const doSearch = useCallback((q: string) => {
     lastQueryRef.current = q;
     loadingRef.current = true;
-    const url = new URL(window.location.href);
+    const url = new URL(window.location.origin);
     if (q) {
       url.searchParams.set("q", q);
-    } else {
-      url.searchParams.delete("q");
     }
-    window.history.replaceState(null, "", url.toString());
+    const currentQ = new URLSearchParams(window.location.search).get("q") || "";
+    if (currentQ !== q) {
+      window.history.pushState(null, "", url.toString());
+    }
     fetchResults(q || undefined, 0, PAGE_SIZE)
       .then((data) => {
         if (lastQueryRef.current !== q) return;
         setResults(data.items);
         setTotal(data.total);
+        setDetailItem(data.item || null);
       })
       .catch((err) => console.error("search failed", err))
       .finally(() => {
@@ -80,46 +107,60 @@ export const App = () => {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (isSearching) {
-        if (e.key === "Escape") {
-          setIsSearching(false);
-          setQuery("");
-        }
-        return;
-      }
       if (e.key === "/" && !(e.target instanceof HTMLInputElement)) {
         e.preventDefault();
-        setIsSearching(true);
+        searchRef.current?.focus();
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isSearching]);
+  }, []);
 
   const onTagClick = useCallback((tag: string) => {
-    setQuery(tag);
-    setIsSearching(true);
+    setQuery((prev) => {
+      const parsed = parseQuery(prev);
+      parsed.tags = [tag];
+      parsed.detail = null;
+      return buildQuery(parsed);
+    });
+    searchRef.current?.focus();
   }, []);
+
+  const onDetail = useCallback((id: string) => {
+    const encoded = encodeId(id);
+    setQuery((prev) => {
+      const parsed = parseQuery(prev);
+      parsed.detail = encoded;
+      return buildQuery(parsed);
+    });
+  }, []);
+
+  const isDetail = parseQuery(query).detail !== null;
 
   return (
     <div className="app">
-      <Grid
-        items={results}
-        total={total}
-        onTagClick={onTagClick}
-        loadMore={loadMore}
-      />
-      {isSearching && (
-        <SearchBar
-          value={query}
-          onChange={setQuery}
-          onClose={() => {
-            setIsSearching(false);
-            setQuery("");
-            window.history.replaceState(null, "", window.location.pathname);
-          }}
+      {isDetail ? (
+        <Detail
+          item={detailItem}
+          related={results}
+          onTagClick={onTagClick}
+          onDetail={onDetail}
+        />
+      ) : (
+        <Grid
+          items={results}
+          total={total}
+          onTagClick={onTagClick}
+          onDetail={onDetail}
+          loadMore={loadMore}
         />
       )}
+      <SearchBar
+        ref={searchRef}
+        value={query}
+        onChange={setQuery}
+        placeholder={placeholder}
+      />
     </div>
   );
 };
