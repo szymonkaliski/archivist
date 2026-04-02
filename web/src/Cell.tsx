@@ -11,13 +11,19 @@ interface CellProps {
 }
 
 export const Cell = ({ item, onTagClick, onDetail, fullImage }: CellProps) => {
+  const hasImage = !!(item.img || item.thumbImg);
+
   return (
     <div className="cell">
-      <img
-        loading="lazy"
-        src={fullImage ? item.img : item.thumbImg}
-        alt={item.meta.title || ""}
-      />
+      {hasImage ? (
+        <img
+          loading="lazy"
+          src={fullImage ? item.img : item.thumbImg}
+          alt={item.meta.title || ""}
+        />
+      ) : (
+        <div className="cell-no-image">no image</div>
+      )}
       <div className="cell-overlay">
         {(item.meta.title || item.link) && (
           <a
@@ -66,9 +72,11 @@ export const Cell = ({ item, onTagClick, onDetail, fullImage }: CellProps) => {
                 detail
               </a>
             )}
-            <a href={item.img} target="_blank" rel="noopener noreferrer">
-              full
-            </a>
+            {hasImage && (
+              <a href={item.img} target="_blank" rel="noopener noreferrer">
+                full
+              </a>
+            )}
             {item.meta.static && (
               <a
                 href={item.meta.static}

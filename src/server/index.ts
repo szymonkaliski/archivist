@@ -83,8 +83,8 @@ const parseQuery = (raw: string): ParsedQuery => {
 
 const rewritePaths = (item: any) => ({
   ...item,
-  img: `/img/${encodePath(item.img)}`,
-  thumbImg: `/img/${encodePath(item.thumbImg)}`,
+  img: item.img ? `/img/${encodePath(item.img)}` : "",
+  thumbImg: item.thumbImg ? `/img/${encodePath(item.thumbImg)}` : "",
   meta: {
     ...item.meta,
     static: item.meta.static

@@ -70,7 +70,9 @@ if (TYPE === "config") {
             thumbPath: source.thumbPath(row),
             text: source.embeddingText(row),
           }))
-          .filter((item) => item.thumbPath.length > 0);
+          .filter(
+            (item) => item.thumbPath.length > 0 || item.text.trim().length > 0,
+          );
 
         await generateEmbeddings(db, items);
       } catch (e) {
