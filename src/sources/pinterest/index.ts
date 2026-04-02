@@ -1,4 +1,3 @@
-import dateFormat from "dateformat";
 import fs from "fs";
 import md5 from "md5";
 import path from "path";
@@ -10,7 +9,7 @@ import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
-import type { SourceDefinition, PinterestConfig, SearchResult } from "../../types";
+import type { SourceDefinition, SearchResult } from "../../types";
 import {
   crawlBoards,
   crawlPinMetadata,
@@ -57,7 +56,11 @@ const download = async (
         try {
           const buf = fs.readFileSync(finalPath);
           const size = imageSize(new Uint8Array(buf));
-          resolve({ filename, width: size.width || 0, height: size.height || 0 });
+          resolve({
+            filename,
+            width: size.width || 0,
+            height: size.height || 0,
+          });
         } catch (err) {
           log.warn(`image-size error: ${err} (${finalPath})`);
           resolve({ filename, width: 0, height: 0 });
@@ -195,10 +198,15 @@ const pinterest: SourceDefinition<"pinterest"> = {
       const recentPinsQuery = db.prepare(
         "SELECT pinid FROM pinterest WHERE board = ? ORDER BY createdat DESC LIMIT 10",
       );
-      const boards = db.prepare("SELECT DISTINCT board FROM pinterest").all() as { board: string }[];
+      const boards = db
+        .prepare("SELECT DISTINCT board FROM pinterest")
+        .all() as { board: string }[];
       for (const { board } of boards) {
         const pins = recentPinsQuery.all(board) as { pinid: string }[];
-        recentPinIdsByBoard.set(board, pins.map((p) => p.pinid));
+        recentPinIdsByBoard.set(
+          board,
+          pins.map((p) => p.pinid),
+        );
       }
     }
 
@@ -250,8 +258,11 @@ const pinterest: SourceDefinition<"pinterest"> = {
     }
 
     const newPinsWithMetadata = await crawlPinMetadata(config, newPins);
-    const fetchedPins = await fetchPins(newPinsWithMetadata, config.concurrency);
-    const crawldate = dateFormat(new Date(), "isoDateTime");
+    const fetchedPins = await fetchPins(
+      newPinsWithMetadata,
+      config.concurrency,
+    );
+    const crawldate = new Date().toISOString();
 
     const finalPins = (fetchedPins as (FetchedPin | null)[])
       .filter((pin): pin is FetchedPin => pin != null)
@@ -268,7 +279,7 @@ const pinterest: SourceDefinition<"pinterest"> = {
           pinid,
           crawldate,
           createdat: pin.createdAt
-            ? dateFormat(new Date(pin.createdAt), "isoDateTime")
+            ? new Date(pin.createdAt).toISOString()
             : undefined,
           width: pin.width,
           height: pin.height,

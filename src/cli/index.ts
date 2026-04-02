@@ -9,7 +9,6 @@ import { SOURCES } from "../sources/registry";
 import { search } from "../search";
 import { generateEmbeddings, type EmbedItem } from "../embeddings";
 import { ensureDirs } from "../paths";
-import type { SourceKind } from "../types";
 
 const log = createLogger("cli");
 
@@ -82,14 +81,14 @@ if (TYPE === "config") {
     process.exit(0);
   })();
 } else if (TYPE === "search" || TYPE === "query") {
-  const config = loadConfig();
   const db = openDb();
   const query = args._[1] as string | undefined;
   const limit = args.limit as number | undefined;
 
   const result = search(db, {
     text: query,
-    limit,
+    limit: limit ?? 100,
+    offset: 0,
   });
 
   if (args.json) {

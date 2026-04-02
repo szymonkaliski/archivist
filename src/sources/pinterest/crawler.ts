@@ -46,7 +46,12 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     page = await browser.newPage();
   } catch (e: any) {
     log.error("error opening page for %s %s", pinUrl, e.message);
-    return { link: undefined, title: undefined, text: undefined, date: undefined };
+    return {
+      link: undefined,
+      title: undefined,
+      text: undefined,
+      date: undefined,
+    };
   }
 
   await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 2 });
@@ -55,8 +60,15 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     await page.goto(pinUrl, { waitUntil: "networkidle2", timeout: 60000 });
   } catch (e: any) {
     log.error("error when going to %s: %s", pinUrl, e.message);
-    try { await page.close(); } catch (_) {}
-    return { link: undefined, title: undefined, text: undefined, date: undefined };
+    try {
+      await page.close();
+    } catch (_) {}
+    return {
+      link: undefined,
+      title: undefined,
+      text: undefined,
+      date: undefined,
+    };
   }
 
   let link: string | undefined,
@@ -127,7 +139,9 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     log.error("error evaluating pin %s: %s", pinUrl, e.message);
   }
 
-  try { await page.close(); } catch (_) {}
+  try {
+    await page.close();
+  } catch (_) {}
 
   return { link, title, text, date };
 };
@@ -235,7 +249,7 @@ const loginWithCreds = async (page: any, email: string, password: string) => {
 
 const loginWithCookiesFromChrome = async (page: any) =>
   new Promise<void>((resolve) => {
-    chrome.getCookies(ROOT, "puppeteer", (err: any, cookies: any[]) => {
+    chrome.getCookies(ROOT, "puppeteer", (_err: any, cookies: any[]) => {
       page.setCookie(...cookies).then(() => {
         page.goto(ROOT, { waitUntil: "networkidle2" }).then(() => {
           resolve();
@@ -285,9 +299,7 @@ export const crawlBoards = async (
       try {
         const pins = await crawlBoard(page, board, knownPinIds);
         log.info("board pins: %s %d", board, pins.length);
-        allPins.push(
-          ...pins.map((pin) => ({ ...pin, board: boardName })),
-        );
+        allPins.push(...pins.map((pin) => ({ ...pin, board: boardName })));
       } catch (e: any) {
         log.error("error crawling board %s: %s", board, e.message);
       }

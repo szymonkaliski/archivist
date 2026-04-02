@@ -1,12 +1,20 @@
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
-import { default as Pinboard } from "node-pinboard";
+import PinboardModule from "node-pinboard";
+
+// node-pinboard is CJS with module.exports = class; ESM interop double-wraps it
+const Pinboard = (PinboardModule as any).default ?? PinboardModule;
 import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
-import { sourceAssetsDir, sourceFrozenDir, sourceThumbsDir, sourceDir } from "../../paths";
-import type { SourceDefinition, PinboardConfig, SearchResult } from "../../types";
+import {
+  sourceAssetsDir,
+  sourceFrozenDir,
+  sourceThumbsDir,
+  sourceDir,
+} from "../../paths";
+import type { SourceDefinition, SearchResult } from "../../types";
 import { fetchLinks, type PinboardLink, type FetcherResult } from "./fetcher";
 
 const log = createLogger("pinboard");
@@ -113,7 +121,9 @@ const pinboard: SourceDefinition<"pinboard"> = {
     );
     const remove = db.prepare("DELETE FROM pinboard WHERE hash = ?");
 
-    const dbLinks = db.prepare("SELECT * FROM pinboard").all() as PinboardDbRow[];
+    const dbLinks = db
+      .prepare("SELECT * FROM pinboard")
+      .all() as PinboardDbRow[];
 
     const newLinks = crawledLinks.filter(
       (link: PinboardLink) =>
@@ -130,7 +140,8 @@ const pinboard: SourceDefinition<"pinboard"> = {
 
     // process removed
     for (const item of removedLinks) {
-      const screenshotPath = item.screenshot && path.join(ASSETS_PATH, item.screenshot);
+      const screenshotPath =
+        item.screenshot && path.join(ASSETS_PATH, item.screenshot);
       const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
       if (screenshotPath && fs.existsSync(screenshotPath)) {
         log.info(`unlinking ${screenshotPath}`);
@@ -147,12 +158,15 @@ const pinboard: SourceDefinition<"pinboard"> = {
     })(removedLinks.map((l) => l.hash));
 
     // fetch new
-    const allFetched = (
-      await fetchLinks(newLinks, config.concurrency)
-    ).filter((r): r is FetcherResult => r !== null);
+    const allFetched = (await fetchLinks(newLinks, config.concurrency)).filter(
+      (r): r is FetcherResult => r !== null,
+    );
 
     const savedLinks = allFetched
-      .filter((r): r is Extract<FetcherResult, { kind: "saved" }> => r.kind === "saved")
+      .filter(
+        (r): r is Extract<FetcherResult, { kind: "saved" }> =>
+          r.kind === "saved",
+      )
       .map((r) => ({
         global_id: globalId(r.link.hash),
         href: r.link.href,
@@ -249,7 +263,9 @@ const pinboard: SourceDefinition<"pinboard"> = {
 
   embeddingText(row): string {
     const r = row as Record<string, any>;
-    return [r.description, r.extended, r.tags, r.href].filter(Boolean).join(" ");
+    return [r.description, r.extended, r.tags, r.href]
+      .filter(Boolean)
+      .join(" ");
   },
 
   thumbPath(row): string {

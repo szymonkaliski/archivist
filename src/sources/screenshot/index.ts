@@ -8,7 +8,11 @@ import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
 import { sourceThumbsDir } from "../../paths";
-import type { SourceDefinition, ScreenshotConfig, SearchResult } from "../../types";
+import type {
+  SourceDefinition,
+  ScreenshotConfig,
+  SearchResult,
+} from "../../types";
 
 const log = createLogger("screenshot");
 
@@ -30,8 +34,7 @@ const THUMBS_PATH = sourceThumbsDir("screenshot");
 const makeId = (filepath: string): string =>
   crypto.createHash("md5").update(filepath).digest("hex").slice(0, 12);
 
-const globalId = (filepath: string): string =>
-  `screenshot:${makeId(filepath)}`;
+const globalId = (filepath: string): string => `screenshot:${makeId(filepath)}`;
 
 const parseTimeFromFilename = (filename: string): string | undefined => {
   const match = filename.match(
@@ -39,7 +42,9 @@ const parseTimeFromFilename = (filename: string): string | undefined => {
   );
   if (match) {
     const [, year, month, day, hour, min, sec] = match;
-    return `${year}/${month}/${day} ${hour}:${min}:${sec}`;
+    return new Date(
+      `${year}-${month}-${day}T${hour}:${min}:${sec}Z`,
+    ).toISOString();
   }
   return undefined;
 };
@@ -112,12 +117,7 @@ const extractMetadata = async (
 ): Promise<ScreenshotDbRow | null> => {
   const time =
     parseTimeFromFilename(filename) ||
-    fs
-      .statSync(filepath)
-      .mtime.toISOString()
-      .replace("T", " ")
-      .replace(/\.\d+Z/, "")
-      .replace(/-/g, "/");
+    fs.statSync(filepath).mtime.toISOString();
 
   let width: number | undefined, height: number | undefined;
   try {
@@ -152,7 +152,9 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
 
   const dbFiles = new Set(
     (
-      db.prepare("SELECT filepath FROM screenshot").all() as { filepath: string }[]
+      db.prepare("SELECT filepath FROM screenshot").all() as {
+        filepath: string;
+      }[]
     ).map((r) => r.filepath),
   );
 
@@ -163,10 +165,14 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
 
   if (removedFiles.length > 0) {
     const remove = db.prepare("DELETE FROM screenshot WHERE filepath = ?");
-    const removeFt = db.prepare("DELETE FROM screenshot_fts WHERE global_id = ?");
+    const removeFt = db.prepare(
+      "DELETE FROM screenshot_fts WHERE global_id = ?",
+    );
     db.transaction((files: string[]) => {
       for (const f of files) {
-        const row = db.prepare("SELECT global_id FROM screenshot WHERE filepath = ?").get(f) as { global_id: string } | undefined;
+        const row = db
+          .prepare("SELECT global_id FROM screenshot WHERE filepath = ?")
+          .get(f) as { global_id: string } | undefined;
         if (row) {
           removeFt.run(row.global_id);
           remove.run(f);
@@ -202,7 +208,9 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
 
   // retry xattr extraction for rows where note is still NULL
   const pending = db
-    .prepare("SELECT global_id, filepath, filename FROM screenshot WHERE note IS NULL")
+    .prepare(
+      "SELECT global_id, filepath, filename FROM screenshot WHERE note IS NULL",
+    )
     .all() as { global_id: string; filepath: string; filename: string }[];
 
   if (pending.length > 0) {
@@ -216,7 +224,13 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
       "INSERT INTO screenshot_fts(global_id, filepath, filename, link, note) VALUES (:global_id, :filepath, :filename, :link, :note)",
     );
 
-    const updates: { global_id: string; filepath: string; filename: string; link: string | null; note: string }[] = [];
+    const updates: {
+      global_id: string;
+      filepath: string;
+      filename: string;
+      link: string | null;
+      note: string;
+    }[] = [];
 
     for (const { global_id, filepath, filename } of pending) {
       const { link, note } = extractXattrComment(filepath);
@@ -233,7 +247,9 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
       }
     })(updates);
 
-    log.info(`retried xattr for ${pending.length} files, filled ${updates.length}`);
+    log.info(
+      `retried xattr for ${pending.length} files, filled ${updates.length}`,
+    );
   }
 };
 

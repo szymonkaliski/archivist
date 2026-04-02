@@ -104,71 +104,28 @@ app.get("/api/search", (req, res) => {
 
   try {
     const parsed = parseQuery(query);
+    const filters = {
+      text: parsed.text || undefined,
+      sources: parsed.sources.length > 0 ? parsed.sources : undefined,
+      tags: parsed.tags.length > 0 ? parsed.tags : undefined,
+      before: parsed.before ?? undefined,
+      after: parsed.after ?? undefined,
+      limit,
+      offset,
+    };
 
     if (parsed.detail) {
-      const { item, items, total } = findSimilar(db, parsed.detail, {
-        text: parsed.text || undefined,
-        sources: parsed.sources.length > 0 ? parsed.sources : undefined,
-        limit: limit + 100,
-        offset: 0,
-      });
-
-      if (!item) {
-        res.json({ item: null, items: [], total: 0 });
-        return;
-      }
-
-      let filtered = items;
-      if (parsed.tags.length > 0) {
-        filtered = filtered.filter((d) => {
-          const itemTags = (d.meta?.tags || []).map((t) => t.toLowerCase());
-          return parsed.tags.some((t) => itemTags.includes(t));
-        });
-      }
-      if (parsed.before) {
-        const beforeMs = new Date(parsed.before).getTime();
-        filtered = filtered.filter((d) => new Date(d.time).getTime() < beforeMs);
-      }
-      if (parsed.after) {
-        const afterMs = new Date(parsed.after).getTime();
-        filtered = filtered.filter((d) => new Date(d.time).getTime() >= afterMs);
-      }
-
+      const { item, items, total } = findSimilar(db, parsed.detail, filters);
       res.json({
-        item: rewritePaths(item),
-        items: filtered.slice(offset, offset + limit).map(rewritePaths),
-        total: filtered.length,
+        item: item ? rewritePaths(item) : null,
+        items: items.map(rewritePaths),
+        total,
       });
       return;
     }
 
-    const result = search(db, {
-      text: parsed.text || undefined,
-      sources: parsed.sources.length > 0 ? parsed.sources : undefined,
-      limit: undefined,
-      offset: 0,
-    });
-
-    let filtered = result.items;
-    if (parsed.tags.length > 0) {
-      filtered = filtered.filter((d) => {
-        const itemTags = (d.meta?.tags || []).map((t) => t.toLowerCase());
-        return parsed.tags.some((t) => itemTags.includes(t));
-      });
-    }
-    if (parsed.before) {
-      const beforeMs = new Date(parsed.before).getTime();
-      filtered = filtered.filter((d) => new Date(d.time).getTime() < beforeMs);
-    }
-    if (parsed.after) {
-      const afterMs = new Date(parsed.after).getTime();
-      filtered = filtered.filter((d) => new Date(d.time).getTime() >= afterMs);
-    }
-
-    res.json({
-      items: filtered.slice(offset, offset + limit).map(rewritePaths),
-      total: filtered.length,
-    });
+    const { items, total } = search(db, filters);
+    res.json({ items: items.map(rewritePaths), total });
   } catch (err) {
     log.error(err, "search failed");
     res.status(500).json({ error: "search failed" });

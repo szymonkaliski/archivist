@@ -13,6 +13,19 @@ const getInitialQuery = () => {
   return params.get("q") || "";
 };
 
+const getScrollTop = () =>
+  document.querySelector(".grid-scroll")?.scrollTop ?? 0;
+
+const setScrollTop = (value: number) => {
+  const el = document.querySelector(".grid-scroll");
+  if (el) el.scrollTop = value;
+};
+
+interface SavedState {
+  scrollTop: number;
+  itemCount: number;
+}
+
 export const App = () => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [detailItem, setDetailItem] = useState<SearchResult | null>(null);
@@ -23,10 +36,13 @@ export const App = () => {
   const lastQueryRef = useRef("");
   const loadingRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const pendingRestoreRef = useRef<SavedState | null>(null);
 
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: PopStateEvent) => {
       const q = new URLSearchParams(window.location.search).get("q") || "";
+      const saved = e.state as SavedState | null;
+      pendingRestoreRef.current = saved ?? null;
       setQuery(q);
     };
     window.addEventListener("popstate", handler);
@@ -39,7 +55,7 @@ export const App = () => {
       .then((sources: string[]) => {
         if (sources.length > 0) {
           setPlaceholder(
-            `search… detail:… source:${sources[0]} tag:… before:… after:…`,
+            `search... detail:... source:${sources[0]} tag:... before:... after:...`,
           );
         }
       })
@@ -49,20 +65,32 @@ export const App = () => {
   const doSearch = useCallback((q: string) => {
     lastQueryRef.current = q;
     loadingRef.current = true;
+
     const url = new URL(window.location.origin);
-    if (q) {
-      url.searchParams.set("q", q);
-    }
+    if (q) url.searchParams.set("q", q);
     const currentQ = new URLSearchParams(window.location.search).get("q") || "";
     if (currentQ !== q) {
       window.history.pushState(null, "", url.toString());
     }
-    fetchResults(q || undefined, 0, PAGE_SIZE)
+
+    const restore = pendingRestoreRef.current;
+    pendingRestoreRef.current = null;
+    const limit = restore ? Math.max(PAGE_SIZE, restore.itemCount) : PAGE_SIZE;
+
+    fetchResults(q || undefined, 0, limit)
       .then((data) => {
         if (lastQueryRef.current !== q) return;
         setResults(data.items);
         setTotal(data.total);
         setDetailItem(data.item || null);
+
+        if (restore) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setScrollTop(restore.scrollTop);
+            });
+          });
+        }
       })
       .catch((err) => console.error("search failed", err))
       .finally(() => {
@@ -95,6 +123,10 @@ export const App = () => {
   const initializedRef = useRef(false);
 
   useEffect(() => {
+    setResults([]);
+    setTotal(0);
+    setDetailItem(null);
+
     if (!initializedRef.current) {
       initializedRef.current = true;
       doSearch(query);
@@ -127,12 +159,24 @@ export const App = () => {
   }, []);
 
   const onDetail = useCallback((id: string) => {
+    history.replaceState(
+      {
+        scrollTop: getScrollTop(),
+        itemCount: resultsLenRef.current,
+      } satisfies SavedState,
+      "",
+      window.location.href,
+    );
+
     const encoded = encodeId(id);
     setQuery((prev) => {
       const parsed = parseQuery(prev);
       parsed.detail = encoded;
       return buildQuery(parsed);
     });
+
+    window.scrollTo(0, 0);
+    setScrollTop(0);
   }, []);
 
   const isDetail = parseQuery(query).detail !== null;

@@ -73,7 +73,9 @@ const savePageInternal = async (
   log.info("saving: %s", link);
 
   const page = await browser.newPage();
-  page.on("error", async () => { await page.close(); });
+  page.on("error", async () => {
+    await page.close();
+  });
 
   await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 2 });
 
@@ -233,7 +235,12 @@ export const fetchLinks = async (
             const fulltext = result.paths.frozen
               ? await getFulltext(path.join(FROZEN_PATH, result.paths.frozen))
               : "";
-            results.push({ kind: "saved", link, fulltext, paths: result.paths });
+            results.push({
+              kind: "saved",
+              link,
+              fulltext,
+              paths: result.paths,
+            });
           }
         } catch (e: any) {
           log.error("uncaught error %s %s", link.href, e.toString());

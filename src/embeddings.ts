@@ -12,63 +12,60 @@ const TEXT_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 const IMAGE_SIZE = 224;
 const DINO_DIMS = 768;
 
-const GLOBAL_IMG = "__archivist_clip_img__";
-const GLOBAL_TEXT_PIPE = "__archivist_text_pipe__";
-const GLOBAL_LOCK = "__archivist_clip_lock__";
-const GLOBAL_TEXT_LOCK = "__archivist_text_lock__";
-
 const ensureCache = () => fs.mkdirSync(MODEL_CACHE_DIR, { recursive: true });
 
-const getImageExtractor = async () => {
-  if ((globalThis as any)[GLOBAL_IMG]) return (globalThis as any)[GLOBAL_IMG];
-  if ((globalThis as any)[GLOBAL_LOCK]) return (globalThis as any)[GLOBAL_LOCK];
+let imageExtractor: any = null;
+let imageExtractorLoading: Promise<any> | null = null;
 
-  const loading = (async () => {
+const getImageExtractor = async () => {
+  if (imageExtractor) return imageExtractor;
+  if (imageExtractorLoading) return imageExtractorLoading;
+
+  imageExtractorLoading = (async () => {
     ensureCache();
     const { pipeline, env } = await import("@huggingface/transformers");
     env.cacheDir = MODEL_CACHE_DIR;
 
     log.info("loading DINOv2 vision model...");
-    const instance = await pipeline(
+    imageExtractor = await pipeline(
       "image-feature-extraction",
       IMAGE_MODEL_ID,
-      { dtype: "fp32" },
+      {
+        dtype: "fp32",
+      },
     );
     log.info("DINOv2 vision model loaded");
 
-    (globalThis as any)[GLOBAL_IMG] = instance;
-    (globalThis as any)[GLOBAL_LOCK] = null;
-    return instance;
+    imageExtractorLoading = null;
+    return imageExtractor;
   })();
 
-  (globalThis as any)[GLOBAL_LOCK] = loading;
-  return loading;
+  return imageExtractorLoading;
 };
 
-const getTextExtractor = async () => {
-  if ((globalThis as any)[GLOBAL_TEXT_PIPE])
-    return (globalThis as any)[GLOBAL_TEXT_PIPE];
-  if ((globalThis as any)[GLOBAL_TEXT_LOCK])
-    return (globalThis as any)[GLOBAL_TEXT_LOCK];
+let textExtractor: any = null;
+let textExtractorLoading: Promise<any> | null = null;
 
-  const loading = (async () => {
+const getTextExtractor = async () => {
+  if (textExtractor) return textExtractor;
+  if (textExtractorLoading) return textExtractorLoading;
+
+  textExtractorLoading = (async () => {
     ensureCache();
     const { pipeline, env } = await import("@huggingface/transformers");
     env.cacheDir = MODEL_CACHE_DIR;
 
     log.info("loading text model (all-MiniLM-L6-v2)...");
-    const instance = await pipeline("feature-extraction", TEXT_MODEL_ID, {
+    textExtractor = await pipeline("feature-extraction", TEXT_MODEL_ID, {
       dtype: "fp32",
     });
     log.info("text model loaded");
 
-    (globalThis as any)[GLOBAL_TEXT_PIPE] = instance;
-    (globalThis as any)[GLOBAL_TEXT_LOCK] = null;
-    return instance;
+    textExtractorLoading = null;
+    return textExtractor;
   })();
 
-  (globalThis as any)[GLOBAL_TEXT_LOCK] = loading;
-  return loading;
+  return textExtractorLoading;
 };
 
 const extractCLS = (output: any): Buffer => {
@@ -104,9 +101,11 @@ const generateImageEmbeddings = async (
   }
 
   const existing = new Set(
-    (db.prepare("SELECT global_id FROM embeddings").all() as { global_id: string }[]).map(
-      (r) => r.global_id,
-    ),
+    (
+      db.prepare("SELECT global_id FROM embeddings").all() as {
+        global_id: string;
+      }[]
+    ).map((r) => r.global_id),
   );
 
   const pending = items.filter(
@@ -180,7 +179,9 @@ const generateTextEmbeddings = async (
 
   const existing = new Set(
     (
-      db.prepare("SELECT global_id FROM text_embeddings").all() as { global_id: string }[]
+      db.prepare("SELECT global_id FROM text_embeddings").all() as {
+        global_id: string;
+      }[]
     ).map((r) => r.global_id),
   );
 
@@ -234,17 +235,21 @@ export const generateEmbeddings = async (
 };
 
 export const syncVecTables = (db: Database.Database) => {
-  const imgCount = db.prepare(
-    `INSERT OR IGNORE INTO vec_image (global_id, embedding)
+  const imgCount = db
+    .prepare(
+      `INSERT OR IGNORE INTO vec_image (global_id, embedding)
      SELECT global_id, embedding FROM embeddings
      WHERE global_id NOT IN (SELECT global_id FROM vec_image)`,
-  ).run().changes;
+    )
+    .run().changes;
 
-  const txtCount = db.prepare(
-    `INSERT OR IGNORE INTO vec_text (global_id, embedding)
+  const txtCount = db
+    .prepare(
+      `INSERT OR IGNORE INTO vec_text (global_id, embedding)
      SELECT global_id, embedding FROM text_embeddings
      WHERE global_id NOT IN (SELECT global_id FROM vec_text)`,
-  ).run().changes;
+    )
+    .run().changes;
 
   if (imgCount > 0 || txtCount > 0) {
     log.info(`synced vec tables: ${imgCount} image + ${txtCount} text`);

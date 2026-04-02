@@ -1,4 +1,3 @@
-import dateFormat from "dateformat";
 import type { SearchResult } from "./types";
 
 const shorten = (text: string, length: number) =>
@@ -81,7 +80,8 @@ export const Cell = ({ item, onTagClick, onDetail, fullImage }: CellProps) => {
             )}
           </div>
           <div className="cell-date">
-            {item.meta.source} / {dateFormat(new Date(item.time), "yyyy-mm-dd")}
+            {item.meta.source} /{" "}
+            {new Date(item.time).toISOString().slice(0, 10)}
           </div>
         </div>
       </div>
