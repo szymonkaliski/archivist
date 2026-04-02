@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && vite build --config web/vite.config.ts",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "cli": "node dist/cli/index.js",

@@ -1,5 +1,0 @@
-node_modules/
-fetch/assets/freeze-dry-browserified.js
-.DS_Store
-.env
-./tmp.js
