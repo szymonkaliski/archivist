@@ -1,7 +1,4 @@
-declare module "dateformat" {
-  function dateFormat(date: Date | string, mask: string): string;
-  export default dateFormat;
-}
+declare module "*.css" {}
 
 declare module "node-wget" {
   function wget(
@@ -49,6 +46,9 @@ declare module "bplist-parser" {
 }
 
 declare module "gif-frames" {
-  function gifFrames(options: any, callback: (err: any, frameData: any) => void): void;
+  function gifFrames(
+    options: any,
+    callback: (err: any, frameData: any) => void,
+  ): void;
   export default gifFrames;
 }

@@ -4,11 +4,14 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "esModuleInterop": true,
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "web"]
+  "include": ["src", "web/src", "scripts"],
+  "exclude": ["node_modules"]
 }
