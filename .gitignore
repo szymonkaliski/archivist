@@ -1,1 +1,5 @@
 .direnv
+dist/
+node_modules/
+tmp/
+src/sources/pinboard/assets/freeze-dry-browserified.js
