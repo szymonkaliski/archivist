@@ -18,6 +18,11 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
         />
+        {value && (
+          <button className="search-clear" onClick={() => onChange("")}>
+            ×
+          </button>
+        )}
       </div>
     );
   },

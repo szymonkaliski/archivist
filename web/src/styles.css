@@ -160,7 +160,8 @@ body {
   right: 0;
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  height: 32px;
+  padding: 0 12px;
   background: var(--search-bg);
   backdrop-filter: blur(12px);
   font-family: ui-monospace, monospace;
@@ -184,6 +185,20 @@ body {
 
 .search-bar input::placeholder {
   color: var(--text-muted);
+}
+
+.search-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.search-clear:hover {
+  color: var(--text);
 }
 
 /* detail page */
