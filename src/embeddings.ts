@@ -97,7 +97,6 @@ const generateImageEmbeddings = async (
   if (stale > 0) {
     log.info(`clearing ${stale} stale image embeddings (model changed)`);
     db.prepare("DELETE FROM embeddings").run();
-    db.prepare("DELETE FROM vec_image WHERE true").run();
   }
 
   const existing = new Set(
@@ -125,10 +124,6 @@ const generateImageEmbeddings = async (
   const insertBlob = db.prepare(
     "INSERT OR IGNORE INTO embeddings (global_id, embedding, model) VALUES (?, ?, ?)",
   );
-  const insertVec = db.prepare(
-    "INSERT OR IGNORE INTO vec_image (global_id, embedding) VALUES (?, ?)",
-  );
-
   for (let i = 0; i < pending.length; i++) {
     const { id, thumbPath } = pending[i];
     try {
@@ -149,7 +144,6 @@ const generateImageEmbeddings = async (
       const output = await extractor(image);
       const embedding = extractCLS(output);
       insertBlob.run(id, embedding, "dinov2-base");
-      insertVec.run(id, embedding);
 
       if ((i + 1) % 50 === 0) {
         log.info(`image embeddings: ${i + 1}/${pending.length}`);
@@ -174,7 +168,6 @@ const generateTextEmbeddings = async (
   if (stale > 0) {
     log.info(`clearing ${stale} stale text embeddings (model changed)`);
     db.prepare("DELETE FROM text_embeddings").run();
-    db.prepare("DELETE FROM vec_text WHERE true").run();
   }
 
   const existing = new Set(
@@ -200,10 +193,6 @@ const generateTextEmbeddings = async (
   const insertBlob = db.prepare(
     "INSERT OR IGNORE INTO text_embeddings (global_id, embedding, model) VALUES (?, ?, ?)",
   );
-  const insertVec = db.prepare(
-    "INSERT OR IGNORE INTO vec_text (global_id, embedding) VALUES (?, ?)",
-  );
-
   for (let i = 0; i < pending.length; i++) {
     const { id, text } = pending[i];
     try {
@@ -213,7 +202,6 @@ const generateTextEmbeddings = async (
       });
       const embedding = Buffer.from(output.data.buffer as ArrayBuffer);
       insertBlob.run(id, embedding, "all-MiniLM-L6-v2");
-      insertVec.run(id, embedding);
 
       if ((i + 1) % 100 === 0) {
         log.info(`text embeddings: ${i + 1}/${pending.length}`);
@@ -232,26 +220,4 @@ export const generateEmbeddings = async (
 ) => {
   await generateImageEmbeddings(db, items);
   await generateTextEmbeddings(db, items);
-};
-
-export const syncVecTables = (db: Database.Database) => {
-  const imgCount = db
-    .prepare(
-      `INSERT OR IGNORE INTO vec_image (global_id, embedding)
-     SELECT global_id, embedding FROM embeddings
-     WHERE global_id NOT IN (SELECT global_id FROM vec_image)`,
-    )
-    .run().changes;
-
-  const txtCount = db
-    .prepare(
-      `INSERT OR IGNORE INTO vec_text (global_id, embedding)
-     SELECT global_id, embedding FROM text_embeddings
-     WHERE global_id NOT IN (SELECT global_id FROM vec_text)`,
-    )
-    .run().changes;
-
-  if (imgCount > 0 || txtCount > 0) {
-    log.info(`synced vec tables: ${imgCount} image + ${txtCount} text`);
-  }
 };

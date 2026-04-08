@@ -39,8 +39,8 @@
     "react-dom": "^19.2.4",
     "react-hotkeys-hook": "^5.2.4",
     "sharp": "^0.34.5",
-    "sqlite-vec": "^0.1.9",
     "tmp": "^0.2.5",
+    "usearch": "^2.21.4",
     "yargs": "^18.0.0"
   },
   "devDependencies": {
@@ -55,9 +55,9 @@
     "@types/yargs": "^17.0.35",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
-    "tsx": "^4.19.0",
     "prettier": "^3.8.1",
     "tsup": "^8.5.1",
+    "tsx": "^4.19.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
     "vitest": "^4.1.2"

@@ -1,16 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Database from "better-sqlite3";
-import * as sqliteVec from "sqlite-vec";
 import { search, findSimilar } from "../search";
+import { loadCached, type VecIndex } from "../vec-index";
 
 // e2e tests against the real DB -- assumes data has been migrated
 const DB_PATH = process.env.HOME + "/.local/share/archivist/data.db";
 
 let db: Database.Database;
+let vecIndex: VecIndex;
 
 beforeAll(() => {
   db = new Database(DB_PATH, { readonly: true });
-  db.loadExtension(sqliteVec.getLoadablePath());
+  const idx = loadCached();
+  if (!idx) throw new Error("vec index not found, run fetch first");
+  vecIndex = idx;
 });
 
 afterAll(() => {
@@ -197,7 +200,7 @@ describe("text search", () => {
 describe("findSimilar (detail view)", () => {
   it("returns the target item and related items, never including itself", () => {
     const targetId = "screenshot:a350c669d162";
-    const { item, items, total } = findSimilar(db, targetId, {
+    const { item, items, total } = findSimilar(db, vecIndex, targetId, {
       limit: 200,
       offset: 0,
     });
@@ -210,15 +213,21 @@ describe("findSimilar (detail view)", () => {
 
   it("never includes target in related items across all pages", () => {
     const targetId = "screenshot:a350c669d162";
-    const page1 = findSimilar(db, targetId, { limit: 100, offset: 0 });
-    const page2 = findSimilar(db, targetId, { limit: 100, offset: 100 });
+    const page1 = findSimilar(db, vecIndex, targetId, {
+      limit: 100,
+      offset: 0,
+    });
+    const page2 = findSimilar(db, vecIndex, targetId, {
+      limit: 100,
+      offset: 100,
+    });
     for (const r of [...page1.items, ...page2.items]) {
       expect(r.id).not.toBe(targetId);
     }
   });
 
   it("source filter returns only that source", () => {
-    const { items } = findSimilar(db, "screenshot:a350c669d162", {
+    const { items } = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       sources: ["screenshot"],
       limit: 20,
       offset: 0,
@@ -228,11 +237,11 @@ describe("findSimilar (detail view)", () => {
   });
 
   it("tag filter reduces results and filters correctly", () => {
-    const all = findSimilar(db, "pinterest:393994667424625110", {
+    const all = findSimilar(db, vecIndex, "pinterest:393994667424625110", {
       limit: 100,
       offset: 0,
     });
-    const tagged = findSimilar(db, "pinterest:393994667424625110", {
+    const tagged = findSimilar(db, vecIndex, "pinterest:393994667424625110", {
       tags: ["cyberpunk-2020"],
       limit: 100,
       offset: 0,
@@ -243,11 +252,11 @@ describe("findSimilar (detail view)", () => {
 
   it("date filter reduces results and respects boundary", () => {
     const cutoff = "2020-01-01T00:00:00Z";
-    const all = findSimilar(db, "screenshot:a350c669d162", {
+    const all = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       limit: 500,
       offset: 0,
     });
-    const filtered = findSimilar(db, "screenshot:a350c669d162", {
+    const filtered = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       before: cutoff,
       limit: 500,
       offset: 0,
@@ -261,11 +270,11 @@ describe("findSimilar (detail view)", () => {
   });
 
   it("pagination returns different pages", () => {
-    const page1 = findSimilar(db, "screenshot:a350c669d162", {
+    const page1 = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       limit: 5,
       offset: 0,
     });
-    const page2 = findSimilar(db, "screenshot:a350c669d162", {
+    const page2 = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       limit: 5,
       offset: 5,
     });
@@ -276,7 +285,7 @@ describe("findSimilar (detail view)", () => {
   });
 
   it("combined source + date filter", () => {
-    const { items } = findSimilar(db, "screenshot:a350c669d162", {
+    const { items } = findSimilar(db, vecIndex, "screenshot:a350c669d162", {
       sources: ["pinboard"],
       after: "2020-01-01T00:00:00Z",
       limit: 20,
@@ -284,6 +293,49 @@ describe("findSimilar (detail view)", () => {
     });
     expect(items.length).toBeGreaterThan(0);
     for (const r of items) expect(r.id).toMatch(/^pinboard:/);
+  });
+});
+
+describe("performance", () => {
+  const time = <T>(fn: () => T): [T, number] => {
+    const start = performance.now();
+    const result = fn();
+    return [result, performance.now() - start];
+  };
+
+  it("browse query < 100ms", () => {
+    const [, ms] = time(() => search(db, { limit: 400, offset: 0 }));
+    expect(ms).toBeLessThan(16);
+  });
+
+  it("browse with filters < 16ms", () => {
+    const [, ms] = time(() =>
+      search(db, {
+        sources: ["pinterest"],
+        tags: ["cyberpunk-2020"],
+        before: "2025-01-01T00:00:00Z",
+        limit: 400,
+        offset: 0,
+      }),
+    );
+    expect(ms).toBeLessThan(16);
+  });
+
+  it("text search < 16ms", () => {
+    const [, ms] = time(() =>
+      search(db, { text: "geoffrey", limit: 400, offset: 0 }),
+    );
+    expect(ms).toBeLessThan(16);
+  });
+
+  it("findSimilar < 16ms", () => {
+    const [, ms] = time(() =>
+      findSimilar(db, vecIndex, "screenshot:a350c669d162", {
+        limit: 400,
+        offset: 0,
+      }),
+    );
+    expect(ms).toBeLessThan(16);
   });
 });
 
@@ -314,10 +366,15 @@ describe("edge cases", () => {
   });
 
   it("findSimilar with nonexistent id returns null item", () => {
-    const { item, items } = findSimilar(db, "screenshot:doesnotexist", {
-      limit: 10,
-      offset: 0,
-    });
+    const { item, items } = findSimilar(
+      db,
+      vecIndex,
+      "screenshot:doesnotexist",
+      {
+        limit: 10,
+        offset: 0,
+      },
+    );
     expect(item).toBeNull();
     expect(items).toHaveLength(0);
   });
@@ -330,7 +387,7 @@ describe("edge cases", () => {
       )
       .get() as { global_id: string } | undefined;
     if (!row) return; // skip if all have screenshots
-    const { item } = findSimilar(db, row.global_id, {
+    const { item } = findSimilar(db, vecIndex, row.global_id, {
       limit: 10,
       offset: 0,
     });

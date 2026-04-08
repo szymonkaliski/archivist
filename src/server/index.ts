@@ -5,16 +5,15 @@ import path from "path";
 import { createLogger } from "../logger";
 import { openDb } from "../db";
 import { search, findSimilar } from "../search";
-import { syncVecTables } from "../embeddings";
 import type { SourceKind } from "../types";
 import { SOURCES } from "../sources/registry";
+import { loadCached } from "../vec-index";
 
 const log = createLogger("server");
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000");
 
 const db = openDb();
-syncVecTables(db);
 
 const encodePath = (filePath: string): string =>
   Buffer.from(filePath).toString("base64url");
@@ -115,7 +114,19 @@ app.get("/api/search", (req, res) => {
     };
 
     if (parsed.detail) {
-      const { item, items, total } = findSimilar(db, parsed.detail, filters);
+      const vecIndex = loadCached();
+      if (!vecIndex) {
+        res
+          .status(503)
+          .json({ error: "vec index not built yet, run fetch first" });
+        return;
+      }
+      const { item, items, total } = findSimilar(
+        db,
+        vecIndex,
+        parsed.detail,
+        filters,
+      );
       res.json({
         item: item ? rewritePaths(item) : null,
         items: items.map(rewritePaths),
