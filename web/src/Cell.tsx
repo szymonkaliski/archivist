@@ -1,7 +1,26 @@
+import { useState, useEffect } from "react";
 import type { SearchResult } from "./types";
 
 const shorten = (text: string, length: number) =>
   text.length <= length ? text : text.slice(0, length - 1).trim() + "…";
+
+const useProgressiveImage = (thumb: string, full: string) => {
+  const [src, setSrc] = useState(thumb);
+  useEffect(() => {
+    setSrc(thumb);
+    if (!full || full === thumb) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setSrc(full);
+    };
+    img.src = full;
+    return () => {
+      cancelled = true;
+    };
+  }, [thumb, full]);
+  return src;
+};
 
 interface CellProps {
   item: SearchResult;
@@ -12,15 +31,15 @@ interface CellProps {
 
 export const Cell = ({ item, onTagClick, onDetail, fullImage }: CellProps) => {
   const hasImage = !!(item.img || item.thumbImg);
+  const displaySrc = useProgressiveImage(
+    item.thumbImg || item.img,
+    fullImage ? item.img : item.thumbImg,
+  );
 
   return (
     <div className="cell">
       {hasImage ? (
-        <img
-          loading="lazy"
-          src={fullImage ? item.img : item.thumbImg}
-          alt={item.meta.title || ""}
-        />
+        <img loading="lazy" src={displaySrc} alt={item.meta.title || ""} />
       ) : (
         <div className="cell-no-image">no image</div>
       )}
