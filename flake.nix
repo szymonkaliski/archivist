@@ -32,6 +32,7 @@
         chromium
         python311
         attr
+        sqlite
       ];
 
       PUPPETEER_SKIP_DOWNLOAD = "true";
