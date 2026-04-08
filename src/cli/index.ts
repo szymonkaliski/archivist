@@ -8,6 +8,7 @@ import { openDb } from "../db";
 import { SOURCES } from "../sources/registry";
 import { search } from "../search";
 import { generateEmbeddings, type EmbedItem } from "../embeddings";
+import { buildAndSave } from "../vec-index";
 import { ensureDirs } from "../paths";
 
 const log = createLogger("cli");
@@ -79,6 +80,7 @@ if (TYPE === "config") {
         log.error(`[${kind}] fetch error: ${e}`);
       }
     }
+    buildAndSave(db);
     db.close();
     process.exit(0);
   })();

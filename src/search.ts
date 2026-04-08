@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 import { SOURCES } from "./sources/registry";
 import type { SearchResult, SourceKind } from "./types";
+import type { VecIndex } from "./vec-index";
 
 const RRF_K = 60;
 const ALL_SOURCES: SourceKind[] = ["pinboard", "pinterest", "screenshot"];
@@ -175,8 +176,81 @@ export const search = (
   return { items: resolveRows(db, rows), total: rows[0]?.total ?? 0 };
 };
 
+const findSimilarVec = (
+  db: Database.Database,
+  vecIndex: VecIndex,
+  targetId: string,
+  options: SearchOptions,
+): { items: SearchResult[]; total: number } => {
+  const imgEmb = db
+    .prepare("SELECT embedding FROM embeddings WHERE global_id = ?")
+    .get(targetId) as { embedding: Buffer } | undefined;
+  const txtEmb = db
+    .prepare("SELECT embedding FROM text_embeddings WHERE global_id = ?")
+    .get(targetId) as { embedding: Buffer } | undefined;
+  if (!imgEmb && !txtEmb) return { items: [], total: 0 };
+
+  const K = 500;
+
+  const imgResults = imgEmb
+    ? vecIndex
+        .searchImage(imgEmb.embedding, K + 1)
+        .filter((id) => id !== targetId)
+    : [];
+  const txtResults = txtEmb
+    ? vecIndex
+        .searchText(txtEmb.embedding, K + 1)
+        .filter((id) => id !== targetId)
+    : [];
+
+  const scores = new Map<string, number>();
+  for (let i = 0; i < imgResults.length; i++) {
+    scores.set(
+      imgResults[i],
+      (scores.get(imgResults[i]) ?? 0) + 1 / (RRF_K + i + 1),
+    );
+  }
+  for (let i = 0; i < txtResults.length; i++) {
+    scores.set(
+      txtResults[i],
+      (scores.get(txtResults[i]) ?? 0) + 1 / (RRF_K + i + 1),
+    );
+  }
+
+  let ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+
+  if (options.sources?.length) {
+    const prefixes = options.sources.map((s) => `${s}:`);
+    ranked = ranked.filter(([id]) => prefixes.some((p) => id.startsWith(p)));
+  }
+
+  const activeSources = options.sources?.length ? options.sources : ALL_SOURCES;
+  if (options.tags?.length || options.before || options.after) {
+    const params: Record<string, any> = {};
+    const parts = activeSources
+      .map((kind) => buildSourceFragment(kind, options, params, "browse"))
+      .filter(Boolean);
+    if (parts.length === 0) return { items: [], total: 0 };
+
+    const sql = parts.join(" UNION ALL ");
+    const eligible = new Set(
+      (db.prepare(sql).all(params) as { global_id: string }[]).map(
+        (r) => r.global_id,
+      ),
+    );
+    ranked = ranked.filter(([id]) => eligible.has(id));
+  }
+
+  const total = ranked.length;
+  const page = ranked.slice(options.offset, options.offset + options.limit);
+  const rankedRows = page.map(([global_id]) => ({ global_id, total }));
+
+  return { items: resolveRows(db, rankedRows), total };
+};
+
 export const findSimilar = (
   db: Database.Database,
+  vecIndex: VecIndex,
   targetId: string,
   options: SearchOptions,
 ): { item: SearchResult | null; items: SearchResult[]; total: number } => {
@@ -190,104 +264,7 @@ export const findSimilar = (
   if (!targetRow) return { item: null, items: [], total: 0 };
 
   const item = targetSource.toSearchResult(targetRow);
+  const result = findSimilarVec(db, vecIndex, targetId, options);
 
-  const hasImg = db
-    .prepare("SELECT 1 FROM vec_image WHERE global_id = ?")
-    .get(targetId);
-  const hasTxt = db
-    .prepare("SELECT 1 FROM vec_text WHERE global_id = ?")
-    .get(targetId);
-  if (!hasImg && !hasTxt) return { item, items: [], total: 0 };
-
-  const activeSources = options.sources?.length ? options.sources : ALL_SOURCES;
-
-  const params: Record<string, any> = { target_id: targetId, k: 500 };
-
-  const sourceWheres: string[] = [];
-  if (options.sources?.length) {
-    const clauses = options.sources.map((s, i) => {
-      params[`src_${i}`] = `${s}:%`;
-      return `r.global_id LIKE :src_${i}`;
-    });
-    sourceWheres.push(`(${clauses.join(" OR ")})`);
-  }
-
-  const needsDataJoin = !!(
-    options.tags?.length ||
-    options.before ||
-    options.after
-  );
-  let filterCTE = "";
-  let filterJoin = "";
-
-  if (needsDataJoin) {
-    const filterParams: Record<string, any> = {};
-    const eligibleParts = activeSources
-      .map((kind) => buildSourceFragment(kind, options, filterParams, "browse"))
-      .filter(Boolean);
-
-    Object.assign(params, filterParams);
-    if (eligibleParts.length === 0) return { item, items: [], total: 0 };
-
-    filterCTE = `,\n    eligible AS (\n      ${eligibleParts.join("\n      UNION ALL\n      ")}\n    )`;
-    filterJoin = "JOIN eligible e ON r.global_id = e.global_id";
-  }
-
-  const filterWhere =
-    sourceWheres.length > 0 ? `WHERE ${sourceWheres.join(" AND ")}` : "";
-
-  const knnCTEs: string[] = [];
-  const candidateParts: string[] = [];
-  const rrfScoreParts: string[] = [];
-  const rrfJoins: string[] = [];
-
-  if (hasImg) {
-    knnCTEs.push(`img_knn AS (
-      SELECT global_id, ROW_NUMBER() OVER (ORDER BY distance) AS rank
-      FROM vec_image
-      WHERE embedding MATCH (SELECT embedding FROM vec_image WHERE global_id = :target_id)
-        AND k = :k AND global_id != :target_id
-    )`);
-    candidateParts.push("SELECT global_id FROM img_knn");
-    rrfScoreParts.push(`COALESCE(1.0 / (${RRF_K} + i.rank), 0)`);
-    rrfJoins.push("LEFT JOIN img_knn i ON a.global_id = i.global_id");
-  }
-
-  if (hasTxt) {
-    knnCTEs.push(`txt_knn AS (
-      SELECT global_id, ROW_NUMBER() OVER (ORDER BY distance) AS rank
-      FROM vec_text
-      WHERE embedding MATCH (SELECT embedding FROM vec_text WHERE global_id = :target_id)
-        AND k = :k AND global_id != :target_id
-    )`);
-    candidateParts.push("SELECT global_id FROM txt_knn");
-    rrfScoreParts.push(`COALESCE(1.0 / (${RRF_K} + t.rank), 0)`);
-    rrfJoins.push("LEFT JOIN txt_knn t ON a.global_id = t.global_id");
-  }
-
-  const sql = `
-    WITH
-    ${knnCTEs.join(",\n    ")},
-    all_candidates AS (
-      ${candidateParts.join(" UNION\n      ")}
-    ),
-    rrf AS (
-      SELECT a.global_id,
-        ${rrfScoreParts.join(" +\n        ")} AS rrf_score
-      FROM all_candidates a
-      ${rrfJoins.join("\n      ")}
-    )${filterCTE}
-    SELECT r.global_id, COUNT(*) OVER() AS total
-    FROM rrf r
-    ${filterJoin}
-    ${filterWhere}
-    ORDER BY r.rrf_score DESC
-    LIMIT :limit OFFSET :offset
-  `;
-
-  params.limit = options.limit;
-  params.offset = options.offset;
-
-  const rows = db.prepare(sql).all(params) as RankedRow[];
-  return { item, items: resolveRows(db, rows), total: rows[0]?.total ?? 0 };
+  return { item, ...result };
 };
