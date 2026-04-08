@@ -37,12 +37,16 @@ export const App = () => {
   const loadingRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingRestoreRef = useRef<SavedState | null>(null);
+  const resultsRef = useRef<SearchResult[]>([]);
+  resultsRef.current = results;
+  const skipDebounceRef = useRef(false);
 
   useEffect(() => {
     const handler = (e: PopStateEvent) => {
       const q = new URLSearchParams(window.location.search).get("q") || "";
       const saved = e.state as SavedState | null;
       pendingRestoreRef.current = saved ?? null;
+      skipDebounceRef.current = true;
       setQuery(q);
     };
     window.addEventListener("popstate", handler);
@@ -123,15 +127,14 @@ export const App = () => {
   const initializedRef = useRef(false);
 
   useEffect(() => {
-    setResults([]);
-    setTotal(0);
-    setDetailItem(null);
-
-    if (!initializedRef.current) {
+    if (!initializedRef.current || skipDebounceRef.current) {
       initializedRef.current = true;
+      skipDebounceRef.current = false;
+      clearTimeout(debounceRef.current);
       doSearch(query);
       return;
     }
+
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(query), 200);
     return () => clearTimeout(debounceRef.current);
@@ -149,6 +152,9 @@ export const App = () => {
   }, []);
 
   const onTagClick = useCallback((tag: string) => {
+    skipDebounceRef.current = true;
+    setDetailItem(null);
+    setResults([]);
     setQuery((prev) => {
       const parsed = parseQuery(prev);
       parsed.tags = [tag];
@@ -167,6 +173,11 @@ export const App = () => {
       "",
       window.location.href,
     );
+
+    const clickedItem = resultsRef.current.find((r) => r.id === id);
+    skipDebounceRef.current = true;
+    setDetailItem(clickedItem ?? null);
+    setResults([]);
 
     const encoded = encodeId(id);
     setQuery((prev) => {
