@@ -296,6 +296,7 @@ describe("findSimilar (detail view)", () => {
   });
 });
 
+// 16ms = one frame at 60fps; queries must complete within a single frame
 describe("performance", () => {
   const time = <T>(fn: () => T): [T, number] => {
     const start = performance.now();

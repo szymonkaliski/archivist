@@ -39,6 +39,20 @@ const migrations: Migration[] = [
       db.exec(stmt);
     }
   },
+  (db) => {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_pinboard_time ON pinboard(time DESC)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_pinterest_createdat ON pinterest(createdat DESC)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_screenshot_time ON screenshot(time DESC)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_arena_connected_at ON arena(connected_at DESC)`,
+    );
+  },
 ];
 
 const runMigrations = (db: Database.Database) => {
