@@ -5,7 +5,12 @@ import type { SearchResult, SourceKind } from "./types";
 import type { VecIndex } from "./vec-index";
 
 const RRF_K = 60;
-const ALL_SOURCES: SourceKind[] = ["pinboard", "pinterest", "screenshot"];
+const ALL_SOURCES: SourceKind[] = [
+  "pinboard",
+  "pinterest",
+  "screenshot",
+  "arena",
+];
 
 const SOURCE_META: Record<
   SourceKind,
@@ -14,6 +19,7 @@ const SOURCE_META: Record<
   pinboard: { table: "pinboard", fts: "pinboard_fts", timeCol: "time" },
   pinterest: { table: "pinterest", fts: "pinterest_fts", timeCol: "createdat" },
   screenshot: { table: "screenshot", fts: "screenshot_fts", timeCol: "time" },
+  arena: { table: "arena", fts: "arena_fts", timeCol: "connected_at" },
 };
 
 export interface SearchOptions {
@@ -61,6 +67,13 @@ const buildSourceFragment = (
         const key = `tag_pi_${i}`;
         params[key] = tag;
         return `${table}.board = :${key}`;
+      });
+      wheres.push(`(${clauses.join(" OR ")})`);
+    } else if (kind === "arena") {
+      const clauses = options.tags.map((tag, i) => {
+        const key = `tag_ar_${i}`;
+        params[key] = `%\t${tag}\t%`;
+        return `('\t' || ${table}.channels || '\t') LIKE :${key}`;
       });
       wheres.push(`(${clauses.join(" OR ")})`);
     } else {

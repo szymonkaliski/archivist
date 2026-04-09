@@ -33,6 +33,12 @@ const migrations: Migration[] = [
   (db) => {
     db.exec(buildInitialSchema());
   },
+  (db) => {
+    const arena = SOURCES.arena;
+    for (const stmt of arena.setupStatements) {
+      db.exec(stmt);
+    }
+  },
 ];
 
 const runMigrations = (db: Database.Database) => {

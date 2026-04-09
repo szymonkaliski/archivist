@@ -9,6 +9,7 @@ const VALID_SOURCES: Set<string> = new Set<SourceKind>([
   "pinboard",
   "pinterest",
   "screenshot",
+  "arena",
 ]);
 
 export const loadConfig = (): AppConfig => {

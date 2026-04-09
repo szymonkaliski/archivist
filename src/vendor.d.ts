@@ -44,11 +44,3 @@ declare module "bplist-parser" {
   };
   export default bplist;
 }
-
-declare module "gif-frames" {
-  function gifFrames(
-    options: any,
-    callback: (err: any, frameData: any) => void,
-  ): void;
-  export default gifFrames;
-}

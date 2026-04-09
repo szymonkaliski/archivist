@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export type SourceKind = "pinboard" | "pinterest" | "screenshot";
+export type SourceKind = "pinboard" | "pinterest" | "screenshot" | "arena";
 
 export interface PinboardConfig {
   apiKey: string;
@@ -21,10 +21,16 @@ export interface ScreenshotConfig {
   concurrency?: number;
 }
 
+export interface ArenaConfig {
+  accessToken: string;
+  concurrency?: number;
+}
+
 export type SourceConfigMap = {
   pinboard: PinboardConfig;
   pinterest: PinterestConfig;
   screenshot: ScreenshotConfig;
+  arena: ArenaConfig;
 };
 
 export type AppConfig = {

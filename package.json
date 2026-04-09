@@ -23,7 +23,6 @@
     "env-paths": "^4.0.0",
     "express": "^5.2.1",
     "freeze-dry": "^1.0.0",
-    "gif-frames": "^1.0.1",
     "image-size": "^2.0.2",
     "is-reachable": "^6.1.0",
     "jsdom": "^29.0.1",

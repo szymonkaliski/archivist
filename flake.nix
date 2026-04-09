@@ -33,6 +33,7 @@
         python311
         attr
         sqlite
+        ffmpeg
       ];
 
       PUPPETEER_SKIP_DOWNLOAD = "true";
