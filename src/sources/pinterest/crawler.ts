@@ -24,19 +24,17 @@ export interface CrawledPin {
   board: string;
 }
 
-export interface CrawledPinWithMetadata extends CrawledPin {
+export interface PinMetadata {
+  link?: string;
   title?: string;
   text?: string;
-  link?: string;
   createdAt?: string;
+  boardOwner?: string;
+  pinner?: string;
+  isPromoted?: boolean;
 }
 
-interface PinMetadata {
-  link?: string;
-  title?: string;
-  text?: string;
-  date?: string;
-}
+export type CrawledPinWithMetadata = CrawledPin & PinMetadata;
 
 const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
   log.debug("crawling pin %s", pinUrl);
@@ -46,12 +44,7 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     page = await browser.newPage();
   } catch (e: any) {
     log.error("error opening page for %s %s", pinUrl, e.message);
-    return {
-      link: undefined,
-      title: undefined,
-      text: undefined,
-      date: undefined,
-    };
+    return {};
   }
 
   await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 2 });
@@ -63,78 +56,47 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     try {
       await page.close();
     } catch (_) {}
-    return {
-      link: undefined,
-      title: undefined,
-      text: undefined,
-      date: undefined,
-    };
+    return {};
   }
 
-  let link: string | undefined,
-    title: string | undefined,
-    text: string | undefined,
-    date: string | undefined;
+  let meta: PinMetadata = {};
   try {
-    ({ link, title, text, date } = await page.evaluate(`(()=>{
-      var fromRelay = () => {
-        for (var s of document.querySelectorAll("script")) {
-          var t = s.textContent || "";
-          if (!t.includes("__PWS_RELAY_REGISTER_COMPLETED_REQUEST__")) continue;
-          if (!t.includes("createdAt")) continue;
-          var match = t.match(/window\\.__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\\("[^"]+",\\s*({.+})\\)/);
-          if (!match) continue;
-          try {
-            var data = JSON.parse(match[1]);
-            var pin = data && data.data && data.data.v3GetPinQueryv2 && data.data.v3GetPinQueryv2.data;
-            if (pin && pin.createdAt) {
-              return {
-                link: pin.link || undefined,
-                title: pin.gridTitle || pin.richMetadata && pin.richMetadata.title || undefined,
-                text: pin.description || pin.gridDescription || undefined,
-                date: pin.createdAt || undefined,
-              };
-            }
-          } catch (e) {}
-        }
-        return null;
-      };
-      var fromDom = () => {
-        var link, title, text, date;
-        var linkEl = document.querySelector(".linkModuleActionButton");
-        if (linkEl) link = linkEl.href || linkEl.parentNode.href;
-        var titleEl = document.querySelector(".CloseupTitleCard h1");
-        if (titleEl) title = titleEl.textContent;
-        var textEl = document.querySelector("[data-test-id=safeTextDirection]");
-        if (textEl) text = textEl.textContent;
+    meta = (await page.evaluate(`(()=>{
+      var pinId = location.pathname.split("/").filter(Boolean).pop();
+      var readPin = function() {
         try {
           var el = document.getElementById("__PWS_INITIAL_PROPS__");
-          if (el) {
-            var pins = JSON.parse(el.textContent).initialReduxState.pins;
-            date = Object.values(pins).map(function(p) { return p.created_at; })[0];
-          }
-        } catch (e) {}
-        if (!date) {
-          try {
-            var el2 = document.getElementById("__PWS_DATA__");
-            if (el2) {
-              var data = JSON.parse(el2.textContent);
-              if (data.props && data.props.initialReduxState && data.props.initialReduxState.pins) {
-                date = Object.values(data.props.initialReduxState.pins).map(function(p) { return p.created_at; })[0];
-              }
-            }
-          } catch (e) {}
-        }
-        return { link: link, title: title, text: text, date: date };
+          if (!el) return null;
+          var pins = JSON.parse(el.textContent).initialReduxState.pins;
+          if (!pins) return null;
+          return pins[pinId] || pins[Object.keys(pins)[0]] || null;
+        } catch (e) { return null; }
+      };
+      var extract = function(p) {
+        if (!p) return {};
+        var board = p.board || {};
+        var boardOwner = (board.owner && board.owner.username)
+          || (board.url ? board.url.split("/").filter(Boolean)[0] : undefined);
+        var pinner = p.pinner && p.pinner.username;
+        var isPromoted = !!(p.is_promoted || p.is_active_ad
+          || p.has_been_boost_promoted || p.promoted_is_lead_ad);
+        return {
+          link: p.link || undefined,
+          title: p.grid_title || p.closeup_unified_title || undefined,
+          text: p.description || p.closeup_unified_description || undefined,
+          createdAt: p.created_at || undefined,
+          boardOwner: boardOwner || undefined,
+          pinner: pinner || undefined,
+          isPromoted: isPromoted,
+        };
       };
       return new Promise(function(resolve) {
-        var data = fromRelay();
-        if (data) { resolve(data); return; }
-        var dom = fromDom();
-        if (dom.link || dom.title || dom.date) { resolve(dom); }
-        else { setTimeout(function() { resolve(fromRelay() || fromDom()); }, 1000); }
+        var data = extract(readPin());
+        if (data.createdAt || data.link || data.title) { resolve(data); return; }
+        // redux state is sometimes filled after initial render
+        setTimeout(function() { resolve(extract(readPin())); }, 1500);
       });
-    })()`));
+    })()`)) as PinMetadata;
   } catch (e: any) {
     log.error("error evaluating pin %s: %s", pinUrl, e.message);
   }
@@ -143,7 +105,7 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
     await page.close();
   } catch (_) {}
 
-  return { link, title, text, date };
+  return meta;
 };
 
 const crawlBoard = async (
@@ -259,6 +221,8 @@ const loginWithCookiesFromChrome = async (page: any) =>
   });
 
 const createBrowser = async (options: PinterestConfig) => {
+  assert(options.profile, "requires profile option");
+
   const browser = await puppeteer.launch({
     headless: true,
     protocolTimeout: 0,
@@ -274,8 +238,6 @@ const createBrowser = async (options: PinterestConfig) => {
   } else {
     throw new Error("invalid login option");
   }
-
-  assert(options.profile, "requires profile option");
 
   return { browser, page };
 };
@@ -320,13 +282,26 @@ export const crawlPinMetadata = async (
   try {
     const results: CrawledPinWithMetadata[] = [];
     const queue = [...pins];
+    let droppedPromoted = 0;
 
     const workers = Array.from({ length: concurrency }, async () => {
       while (queue.length > 0) {
         const pin = queue.shift()!;
         try {
-          const { link, title, text, date } = await crawlPin(browser, pin.url);
-          results.push({ ...pin, title, text, link, createdAt: date });
+          const meta = await crawlPin(browser, pin.url);
+
+          if (meta.isPromoted) {
+            droppedPromoted++;
+            log.warn(
+              "dropping promoted pin %s (owner=%s pinner=%s)",
+              pin.url,
+              meta.boardOwner,
+              meta.pinner,
+            );
+            continue;
+          }
+
+          results.push({ ...pin, ...meta });
         } catch (e: any) {
           log.error("error crawling pin %s: %s", pin.url, e.message);
           results.push({ ...pin });
@@ -335,6 +310,9 @@ export const crawlPinMetadata = async (
     });
 
     await Promise.all(workers);
+    if (droppedPromoted) {
+      log.info("dropped %d promoted pins", droppedPromoted);
+    }
     return results;
   } finally {
     await browser.close();
