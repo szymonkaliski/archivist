@@ -8,6 +8,9 @@
   --action-bg: #555;
   --gap: 1px;
   --radius: 0;
+  --safe-bottom: min(12px, env(safe-area-inset-bottom, 0px));
+  --safe-top: env(safe-area-inset-top, 0px);
+  --bar-height: calc(32px + var(--safe-bottom));
 }
 
 * {
@@ -28,6 +31,7 @@ body {
 .app {
   width: 100vw;
   height: 100vh;
+  padding-top: var(--safe-top);
   position: relative;
 }
 
@@ -160,13 +164,18 @@ body {
   right: 0;
   display: flex;
   align-items: center;
-  height: 32px;
-  padding: 0 12px;
+  height: var(--bar-height);
+  padding: 0 12px var(--safe-bottom);
   background: var(--search-bg);
   backdrop-filter: blur(12px);
   font-family: ui-monospace, monospace;
   font-size: 13px;
   z-index: 10;
+}
+
+.search-bar:focus-within {
+  height: 32px;
+  padding-bottom: 0;
 }
 
 .search-slash {
@@ -205,7 +214,7 @@ body {
 
 .detail-split {
   display: grid;
-  height: calc(100vh - 32px);
+  height: calc(100vh - var(--safe-top) - var(--bar-height));
 }
 
 .detail-main {
@@ -232,7 +241,7 @@ body {
 .detail-mobile {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 32px);
+  height: calc(100vh - var(--safe-top) - var(--bar-height));
   overflow-y: scroll;
   -webkit-overflow-scrolling: touch;
 }
@@ -253,7 +262,7 @@ body {
 }
 
 .detail-related-mobile {
-  flex: 0 0 calc(100vh - 32px);
+  flex: 0 0 calc(100vh - var(--safe-top) - var(--bar-height));
 }
 
 @media (max-width: 600px) {

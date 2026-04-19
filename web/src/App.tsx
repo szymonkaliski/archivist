@@ -151,6 +151,37 @@ export const App = () => {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === "visible") {
+        doSearch(lastQueryRef.current);
+      }
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [doSearch]);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let lastHeight = vv.height;
+    const handler = () => {
+      if (vv.height > lastHeight) {
+        const el = document.querySelector(".grid-scroll");
+        if (el instanceof HTMLElement) {
+          const top = el.scrollTop;
+          el.style.overflow = "hidden";
+          void el.offsetHeight;
+          el.style.overflow = "";
+          el.scrollTop = top;
+        }
+      }
+      lastHeight = vv.height;
+    };
+    vv.addEventListener("resize", handler);
+    return () => vv.removeEventListener("resize", handler);
+  }, []);
+
   const onTagClick = useCallback((tag: string) => {
     skipDebounceRef.current = true;
     setDetailItem(null);
