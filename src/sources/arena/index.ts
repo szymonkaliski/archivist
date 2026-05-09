@@ -44,13 +44,19 @@ interface ArenaAttachment {
   filename: string;
 }
 
+interface ArenaRichText {
+  markdown?: string;
+  html?: string;
+  plain?: string;
+}
+
 interface ArenaBlock {
   id: number;
   type: "Image" | "Text" | "Link" | "Media" | "Attachment";
   base_type: "Block" | "Channel";
   title: string | null;
-  description: string | { plain: string } | null;
-  content: string | null;
+  description: string | ArenaRichText | null;
+  content: string | ArenaRichText | null;
   created_at: string;
   updated_at: string;
   source: ArenaSource | null;
@@ -60,6 +66,14 @@ interface ArenaBlock {
     connected_at: string;
   };
 }
+
+const richTextToPlain = (
+  value: string | ArenaRichText | null | undefined,
+): string | null => {
+  if (value == null) return null;
+  if (typeof value === "string") return value || null;
+  return value.plain || value.markdown || null;
+};
 
 interface ArenaChannel {
   id: number;
@@ -429,11 +443,8 @@ const arena: SourceDefinition<"arena"> = {
           global_id: globalId(blockId),
           block_id: blockId,
           title: block.title || null,
-          description:
-            (typeof block.description === "object"
-              ? block.description?.plain
-              : block.description) || null,
-          content: block.content || null,
+          description: richTextToPlain(block.description),
+          content: richTextToPlain(block.content),
           source_url: block.source?.url || null,
           block_class: block.type,
           connected_at: block.connection?.connected_at || block.created_at,
