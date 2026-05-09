@@ -149,7 +149,11 @@ const generateImageEmbeddings = async (
         log.info(`image embeddings: ${i + 1}/${pending.length}`);
       }
     } catch (e) {
-      log.warn(`failed to embed image ${id}: ${e}`);
+      const msg = String(e).replace(
+        /\nheif: Error while loading plugin[^\n]*/g,
+        "",
+      );
+      log.warn(`failed to embed image ${id}: ${msg}`);
     }
   }
 
