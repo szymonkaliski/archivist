@@ -220,27 +220,48 @@ const downloadAttachmentAsGif = async (
   url: string,
   blockId: number,
 ): Promise<{ filename: string; width: number; height: number } | null> => {
+  const mp4Path = path.join(ASSETS_PATH, `${blockId}.mp4`);
+  const palettePath = path.join(ASSETS_PATH, `${blockId}.palette.png`);
+  const gifFilename = `${blockId}.gif`;
+  const gifPath = path.join(ASSETS_PATH, gifFilename);
+
+  // cap width so palettegen on long, high-res screen recordings doesn't OOM;
+  // 1920 keeps perceived quality high while bounding the per-frame memory cost
+  const scaleFilter = "scale='min(1920,iw)':-2:flags=lanczos";
+  const fpsFilter = "fps=15";
+
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
 
-    const buf = Buffer.from(await res.arrayBuffer());
-    const mp4Path = path.join(ASSETS_PATH, `${blockId}.mp4`);
-    const gifFilename = `${blockId}.gif`;
-    const gifPath = path.join(ASSETS_PATH, gifFilename);
+    fs.writeFileSync(mp4Path, Buffer.from(await res.arrayBuffer()));
 
-    fs.writeFileSync(mp4Path, buf);
-
+    // two-pass: palettegen is the memory hot spot; running it standalone (no
+    // split filter holding both branches in flight) keeps peak RSS much lower
     await execFileAsync("ffmpeg", [
       "-i",
       mp4Path,
       "-vf",
-      "fps=15,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a",
+      `${fpsFilter},${scaleFilter},palettegen=max_colors=256:stats_mode=diff`,
+      "-update",
+      "1",
+      "-y",
+      palettePath,
+    ]);
+
+    await execFileAsync("ffmpeg", [
+      "-i",
+      mp4Path,
+      "-i",
+      palettePath,
+      "-lavfi",
+      `${fpsFilter},${scaleFilter}[x];[x][1:v]paletteuse=dither=sierra2_4a`,
       "-y",
       gifPath,
     ]);
 
     fs.unlinkSync(mp4Path);
+    fs.unlinkSync(palettePath);
 
     try {
       const size = imageSize(new Uint8Array(fs.readFileSync(gifPath)));
@@ -254,6 +275,11 @@ const downloadAttachmentAsGif = async (
     }
   } catch (e: any) {
     log.error("attachment->gif failed for block %d: %s", blockId, e.message);
+    for (const p of [mp4Path, palettePath, gifPath]) {
+      try {
+        fs.unlinkSync(p);
+      } catch {}
+    }
     return null;
   }
 };
@@ -420,23 +446,25 @@ const arena: SourceDefinition<"arena"> = {
         let height = 0;
 
         const isVideo = block.attachment?.content_type?.startsWith("video/");
+        let downloaded: {
+          filename: string;
+          width: number;
+          height: number;
+        } | null = null;
+
         if (isVideo && block.attachment) {
-          const downloaded = await downloadAttachmentAsGif(
+          downloaded = await downloadAttachmentAsGif(
             block.attachment.url,
             blockId,
           );
-          if (downloaded) {
-            filename = downloaded.filename;
-            width = downloaded.width;
-            height = downloaded.height;
-          }
-        } else if (block.image?.src) {
-          const downloaded = await downloadImage(block.image.src, blockId);
-          if (downloaded) {
-            filename = downloaded.filename;
-            width = downloaded.width;
-            height = downloaded.height;
-          }
+        }
+        if (!downloaded && block.image?.src) {
+          downloaded = await downloadImage(block.image.src, blockId);
+        }
+        if (downloaded) {
+          filename = downloaded.filename;
+          width = downloaded.width;
+          height = downloaded.height;
         }
 
         results.push({
