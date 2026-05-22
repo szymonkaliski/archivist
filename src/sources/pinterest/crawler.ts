@@ -108,80 +108,111 @@ const crawlPin = async (browser: any, pinUrl: string): Promise<PinMetadata> => {
   return meta;
 };
 
+// Paginate a board's BoardFeedResource by replaying the page's own feed request
+// (valid session/CSRF headers). The first page is forced by stripping any captured
+// `bookmarks`; subsequent pages follow `bookmark` until it's absent (end-of-feed).
+// This feed contains ONLY pins saved to the board - Pinterest serves "More ideas"
+// recommendations from a separate endpoint - so there is nothing to scrape or
+// boundary-detect, and it is independent of UI text/locale.
+const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
+  var known = new Set(knownIds || []);
+  var seen = {};
+  var pins = [];
+  var bookmark = null;
+  var pages = 0;
+  var stop = false;
+  for (;;) {
+    var u = new URL(firstUrl);
+    var data = JSON.parse(u.searchParams.get("data"));
+    if (!data.options) data.options = {};
+    if (bookmark) data.options.bookmarks = [bookmark];
+    else delete data.options.bookmarks;
+    u.searchParams.set("data", JSON.stringify(data));
+    u.searchParams.set("_", String(Date.now()));
+    var r = await fetch(u.toString(), { headers: headers, credentials: "include" });
+    if (!r.ok) break;
+    var j = await r.json();
+    var rr = j.resource_response || {};
+    var arr = Array.isArray(rr.data) ? rr.data : [];
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i];
+      if (!p || p.type !== "pin" || !p.id || seen[p.id]) continue;
+      if (known.size > 0 && known.has(p.id)) { stop = true; break; }
+      seen[p.id] = true;
+      var imgs = p.images || {};
+      var orig = imgs.orig || {};
+      pins.push({
+        url: location.origin + "/pin/" + p.id + "/",
+        biggestSrc: orig.url || "",
+        src: (imgs["474x"] && imgs["474x"].url) || orig.url || "",
+        alt: p.description || p.grid_title || p.title || "",
+        srcset: "",
+      });
+    }
+    pages++;
+    if (stop) break;
+    if (!("bookmark" in rr)) break;
+    bookmark = rr.bookmark;
+    if (!bookmark) break;
+    if (pages > 300) break;
+    await new Promise(function (res) { setTimeout(res, 120); });
+  }
+  return pins;
+})`;
+
 const crawlBoard = async (
   page: any,
   boardUrl: string,
+  profile: string,
   knownPinIds?: string[],
 ): Promise<CrawledPin[]> => {
   log.info("crawling board %s", boardUrl);
+  const boardName = boardUrl.split("/").filter(Boolean).pop()!;
 
   try {
-    await page.goto(boardUrl, { waitUntil: "networkidle2", timeout: 60000 });
+    // require the captured feed request to belong to THIS board (its source_url
+    // carries the board path) so we never replay a neighbouring board's request
+    const waitFirst = page.waitForResponse(
+      (r: any) => {
+        const u = r.url();
+        return (
+          /\/resource\/BoardFeedResource\/get\//.test(u) &&
+          decodeURIComponent(u).includes(`/${profile}/${boardName}/`)
+        );
+      },
+      { timeout: 45000 },
+    );
+
+    await page.goto(boardUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    const firstReq = (await waitFirst).request();
+    const firstUrl = firstReq.url();
+    const rawHeaders = firstReq.headers();
+    const skip = new Set([
+      "cookie",
+      "host",
+      "content-length",
+      "accept-encoding",
+      "connection",
+      "content-type",
+    ]);
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      if (k.startsWith(":") || skip.has(k.toLowerCase())) continue;
+      headers[k] = v as string;
+    }
+
+    const pins = (await page.evaluate(
+      `(${PIN_PAGINATE})(${JSON.stringify(firstUrl)}, ${JSON.stringify(headers)}, ${JSON.stringify(knownPinIds ?? [])})`,
+    )) as CrawledPin[];
+
+    return pins.filter((pin) => pin.biggestSrc && pin.biggestSrc.length > 0);
   } catch (e: any) {
-    log.error("error navigating to board %s: %s", boardUrl, e.message);
+    log.error("error crawling board %s: %s", boardUrl, e.message);
     return [];
   }
-
-  await sleep(2000);
-
-  const knownIdsJson = JSON.stringify(knownPinIds ?? []);
-
-  const scrollResult = await page.evaluate(`(()=>{
-    var knownIds = new Set(${knownIdsJson});
-    return new Promise((resolve) => {
-      var lastScrollPosition = 0;
-      var allPins = {};
-      var scrollDown = () => {
-        window.scrollTo(0, window.scrollY + 10);
-        setTimeout(() => {
-          var foundKnown = false;
-          Array.from(document.querySelectorAll("[data-test-id=pin]")).forEach((pin) => {
-            if (foundKnown) return;
-            var a = pin.querySelector("a");
-            var img = pin.querySelector("img");
-            if (a && img) {
-              var url = a.href;
-              if (allPins[url]) return;
-              if (knownIds.size > 0 && knownIds.has(url.split("/").slice(-2, -1)[0])) {
-                foundKnown = true;
-                return;
-              }
-              var src = img.src;
-              var srcset = img.srcset;
-              var alt = img.alt;
-              allPins[url] = { url, src, alt, srcset };
-            }
-          });
-          if (foundKnown) {
-            resolve(Object.values(allPins));
-          } else if (window.scrollY === lastScrollPosition) {
-            resolve(Object.values(allPins));
-          } else {
-            lastScrollPosition = window.scrollY;
-            scrollDown();
-          }
-        }, 10);
-      };
-      scrollDown();
-    });
-  })()`);
-
-  return (scrollResult as any[])
-    .map((pin: any) => {
-      const srcsetParts = pin.srcset.split(",");
-      const biggestSrc =
-        pin.srcset.length > 0
-          ? srcsetParts[srcsetParts.length - 1].trim().split(" ")[0].trim()
-          : pin.src;
-
-      if (!biggestSrc || biggestSrc.length === 0) {
-        log.warn("missing src for pin %o", pin);
-        return null;
-      }
-
-      return { ...pin, biggestSrc };
-    })
-    .filter((pin: any): pin is CrawledPin => pin != null);
 };
 
 const crawlProfile = async (
@@ -259,7 +290,12 @@ export const crawlBoards = async (
       const boardName = board.split("/").filter(Boolean).pop()!;
       const knownPinIds = recentPinIdsByBoard?.get(boardName);
       try {
-        const pins = await crawlBoard(page, board, knownPinIds);
+        const pins = await crawlBoard(
+          page,
+          board,
+          options.profile!,
+          knownPinIds,
+        );
         log.info("board pins: %s %d", board, pins.length);
         allPins.push(...pins.map((pin) => ({ ...pin, board: boardName })));
       } catch (e: any) {
@@ -279,10 +315,13 @@ export const crawlPinMetadata = async (
   const { browser } = await createBrowser(options);
   const concurrency = options.concurrency || 4;
 
+  const profile = options.profile?.toLowerCase();
+
   try {
     const results: CrawledPinWithMetadata[] = [];
     const queue = [...pins];
     let droppedPromoted = 0;
+    let droppedForeign = 0;
 
     const workers = Array.from({ length: concurrency }, async () => {
       while (queue.length > 0) {
@@ -301,6 +340,23 @@ export const crawlPinMetadata = async (
             continue;
           }
 
+          // "More ideas" recommendations aren't promoted; drop pins owned by others
+          // (undefined owner = crawl failure, keep to avoid losing real pins).
+          if (
+            profile &&
+            meta.boardOwner &&
+            meta.boardOwner.toLowerCase() !== profile
+          ) {
+            droppedForeign++;
+            log.warn(
+              "dropping foreign pin %s (owner=%s, not %s)",
+              pin.url,
+              meta.boardOwner,
+              options.profile,
+            );
+            continue;
+          }
+
           results.push({ ...pin, ...meta });
         } catch (e: any) {
           log.error("error crawling pin %s: %s", pin.url, e.message);
@@ -312,6 +368,13 @@ export const crawlPinMetadata = async (
     await Promise.all(workers);
     if (droppedPromoted) {
       log.info("dropped %d promoted pins", droppedPromoted);
+    }
+    if (droppedForeign) {
+      log.info(
+        "dropped %d foreign pins (not owned by %s)",
+        droppedForeign,
+        options.profile,
+      );
     }
     return results;
   } finally {
