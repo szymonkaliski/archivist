@@ -53,6 +53,17 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_arena_connected_at ON arena(connected_at DESC)`,
     );
   },
+  (db) => {
+    // a fresh DB already gets the column from screenshot's setupStatements
+    const columns = db.prepare("PRAGMA table_info(screenshot)").all() as {
+      name: string;
+    }[];
+    if (!columns.some((c) => c.name === "xattr_attempts")) {
+      db.exec(
+        `ALTER TABLE screenshot ADD COLUMN xattr_attempts INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+  },
 ];
 
 const runMigrations = (db: Database.Database) => {

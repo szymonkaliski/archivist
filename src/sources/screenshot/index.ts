@@ -95,6 +95,9 @@ const COMMENT_XATTR = isMac
   ? "com.apple.metadata:kMDItemFinderComment"
   : "user.com.dropbox.apple.metadata:kMDItemFinderComment";
 
+// hourly fetches, so this is roughly half a day for Dropbox to sync an attribute
+const MAX_XATTR_ATTEMPTS = 10;
+
 const extractXattrComment = (filepath: string) => {
   const comment = readXattr(filepath, COMMENT_XATTR);
   return parseComment(comment);
@@ -206,16 +209,26 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
     log.info(`indexed ${entries.length} new files`);
   }
 
-  // retry xattr extraction for rows where note is still NULL
+  // Retry xattr extraction for rows with no comment recovered yet. Dropbox can
+  // sync the attribute after the file itself, but an absent or corrupt one never
+  // resolves, so the attempt counter bounds how long a row is re-read.
   const pending = db
     .prepare(
-      "SELECT global_id, filepath, filename FROM screenshot WHERE note IS NULL",
+      `SELECT global_id, filepath, filename FROM screenshot
+       WHERE note IS NULL AND xattr_attempts < ?`,
     )
-    .all() as { global_id: string; filepath: string; filename: string }[];
+    .all(MAX_XATTR_ATTEMPTS) as {
+    global_id: string;
+    filepath: string;
+    filename: string;
+  }[];
 
   if (pending.length > 0) {
     const update = db.prepare(
       "UPDATE screenshot SET link = :link, note = :note WHERE global_id = :global_id",
+    );
+    const bumpAttempt = db.prepare(
+      "UPDATE screenshot SET xattr_attempts = xattr_attempts + 1 WHERE global_id = ?",
     );
     const deleteFt = db.prepare(
       "DELETE FROM screenshot_fts WHERE global_id = :global_id",
@@ -245,10 +258,19 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
         deleteFt.run(row);
         insertFt.run(row);
       }
+      for (const { global_id } of pending) bumpAttempt.run(global_id);
     })(updates);
 
+    const { exhausted } = db
+      .prepare(
+        `SELECT count(*) AS exhausted FROM screenshot
+         WHERE note IS NULL AND xattr_attempts >= ?`,
+      )
+      .get(MAX_XATTR_ATTEMPTS) as { exhausted: number };
+
     log.info(
-      `retried xattr for ${pending.length} files, filled ${updates.length}`,
+      `retried xattr for ${pending.length} files, filled ${updates.length}` +
+        (exhausted > 0 ? `, ${exhausted} exhausted their retries` : ""),
     );
   }
 };
@@ -284,7 +306,8 @@ const screenshot: SourceDefinition<"screenshot"> = {
       width INTEGER,
       height INTEGER,
       link TEXT,
-      note TEXT
+      note TEXT,
+      xattr_attempts INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE VIRTUAL TABLE IF NOT EXISTS screenshot_fts
      USING FTS5(global_id, filepath, filename, link, note)`,
