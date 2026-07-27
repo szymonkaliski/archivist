@@ -304,7 +304,7 @@ describe("performance", () => {
     return [result, performance.now() - start];
   };
 
-  it("browse query < 100ms", () => {
+  it("browse query < 16ms", () => {
     const [, ms] = time(() => search(db, { limit: 400, offset: 0 }));
     expect(ms).toBeLessThan(16);
   });

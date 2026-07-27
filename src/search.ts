@@ -34,7 +34,6 @@ export interface SearchOptions {
 
 interface RankedRow {
   global_id: string;
-  total: number;
 }
 
 export const ftsQuoteTerms = (input: string): string =>
@@ -134,6 +133,35 @@ const resolveRows = (
     .filter(Boolean);
 };
 
+// COUNT(*) OVER() would force the whole UNION to be materialized just to label
+// each of the LIMIT rows, so the total is counted separately. This also keeps
+// the total correct when an offset lands past the end and no rows come back.
+const runPagedQuery = (
+  db: Database.Database,
+  cte: string,
+  params: Record<string, any>,
+  options: SearchOptions,
+): { items: SearchResult[]; total: number } => {
+  const rows = db
+    .prepare(
+      `WITH matched AS (${cte})
+       SELECT global_id FROM matched
+       ORDER BY sort_time DESC
+       LIMIT :limit OFFSET :offset`,
+    )
+    .all({
+      ...params,
+      limit: options.limit,
+      offset: options.offset,
+    }) as RankedRow[];
+
+  const { total } = db
+    .prepare(`WITH matched AS (${cte}) SELECT COUNT(*) AS total FROM matched`)
+    .get(params) as { total: number };
+
+  return { items: resolveRows(db, rows), total };
+};
+
 export const search = (
   db: Database.Database,
   options: SearchOptions,
@@ -152,20 +180,12 @@ export const search = (
       .filter(Boolean);
     if (parts.length === 0) return { items: [], total: 0 };
 
-    const sql = `
-      WITH fts_results AS (
-        ${parts.join("\n        UNION ALL\n        ")}
-      )
-      SELECT global_id, COUNT(*) OVER() AS total
-      FROM fts_results
-      ORDER BY sort_time DESC
-      LIMIT :limit OFFSET :offset
-    `;
-    params.limit = options.limit;
-    params.offset = options.offset;
-
-    const rows = db.prepare(sql).all(params) as RankedRow[];
-    return { items: resolveRows(db, rows), total: rows[0]?.total ?? 0 };
+    return runPagedQuery(
+      db,
+      parts.join("\n        UNION ALL\n        "),
+      params,
+      options,
+    );
   }
 
   const parts = activeSources
@@ -173,20 +193,12 @@ export const search = (
     .filter(Boolean);
   if (parts.length === 0) return { items: [], total: 0 };
 
-  const sql = `
-    WITH filtered AS (
-      ${parts.join("\n      UNION ALL\n      ")}
-    )
-    SELECT global_id, COUNT(*) OVER() AS total
-    FROM filtered
-    ORDER BY sort_time DESC
-    LIMIT :limit OFFSET :offset
-  `;
-  params.limit = options.limit;
-  params.offset = options.offset;
-
-  const rows = db.prepare(sql).all(params) as RankedRow[];
-  return { items: resolveRows(db, rows), total: rows[0]?.total ?? 0 };
+  return runPagedQuery(
+    db,
+    parts.join("\n      UNION ALL\n      "),
+    params,
+    options,
+  );
 };
 
 const findSimilarVec = (
@@ -256,9 +268,14 @@ const findSimilarVec = (
 
   const total = ranked.length;
   const page = ranked.slice(options.offset, options.offset + options.limit);
-  const rankedRows = page.map(([global_id]) => ({ global_id, total }));
 
-  return { items: resolveRows(db, rankedRows), total };
+  return {
+    items: resolveRows(
+      db,
+      page.map(([global_id]) => ({ global_id })),
+    ),
+    total,
+  };
 };
 
 export const findSimilar = (
