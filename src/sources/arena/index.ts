@@ -98,6 +98,7 @@ interface ArenaDbRow {
 }
 
 const MAX_RETRIES = 5;
+const BACKOFF_BASE_MS = 2000;
 
 const apiFetch = async (
   endpoint: string,
@@ -112,9 +113,29 @@ const apiFetch = async (
     }
   }
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const retryAfter = async (waitMs: number, reason: string) => {
+    log.warn(
+      `${reason}, waiting ${Math.ceil(waitMs / 1000)}s (retry ${retries + 1}/${MAX_RETRIES})`,
+    );
+    await new Promise((r) => setTimeout(r, waitMs));
+    return apiFetch(endpoint, token, params, retries + 1);
+  };
+
+  // An error thrown here propagates past every caller and aborts the whole
+  // source for the run, so transient connection failures are retried.
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (e: any) {
+    if (retries >= MAX_RETRIES) {
+      throw new Error(
+        `network error after ${MAX_RETRIES} retries: ${endpoint}: ${e.message}`,
+      );
+    }
+    return retryAfter(BACKOFF_BASE_MS * 2 ** retries, `network error (${e})`);
+  }
 
   if (res.status === 429) {
     if (retries >= MAX_RETRIES) {
@@ -124,11 +145,16 @@ const apiFetch = async (
     const waitMs = reset
       ? Math.max(0, Number(reset) * 1000 - Date.now())
       : 60_000;
-    log.warn(
-      `rate limited, waiting ${Math.ceil(waitMs / 1000)}s (retry ${retries + 1}/${MAX_RETRIES})`,
-    );
-    await new Promise((r) => setTimeout(r, waitMs + 1000));
-    return apiFetch(endpoint, token, params, retries + 1);
+    return retryAfter(waitMs + 1000, "rate limited");
+  }
+
+  if (res.status >= 500) {
+    if (retries >= MAX_RETRIES) {
+      throw new Error(
+        `API ${res.status} after ${MAX_RETRIES} retries: ${endpoint}`,
+      );
+    }
+    return retryAfter(BACKOFF_BASE_MS * 2 ** retries, `API ${res.status}`);
   }
 
   if (!res.ok) {
@@ -306,11 +332,11 @@ const createThumbnails = async (db: Database.Database) => {
         const meta = await sharp(inputPath).metadata();
         const w = meta.width || 0;
         const h = meta.height || 0;
-        if (w <= THUMB_SIZE && h <= THUMB_SIZE) {
-          fs.copyFileSync(inputPath, outputPath);
-        } else {
-          await sharp(inputPath).resize(THUMB_SIZE).png().toFile(outputPath);
-        }
+        // Always re-encode. libvips selects its loader from the file extension,
+        // so copying e.g. heic bytes to a .png name yields an unreadable thumb.
+        const image = sharp(inputPath);
+        if (w > THUMB_SIZE || h > THUMB_SIZE) image.resize(THUMB_SIZE);
+        await image.png().toFile(outputPath);
       } catch (e: any) {
         log.error("error making thumbnail for: %s %s", inputPath, String(e));
       }
