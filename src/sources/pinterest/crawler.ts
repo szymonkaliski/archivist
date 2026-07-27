@@ -1,9 +1,11 @@
 import assert from "assert";
+import fs from "fs";
 import * as chrome from "chrome-cookies-secure";
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
 import { createLogger } from "../../logger";
+import { sourceSessionDir } from "../../paths";
 import type { PinterestConfig } from "../../types";
 
 const log = createLogger("pinterest");
@@ -11,6 +13,29 @@ const log = createLogger("pinterest");
 puppeteer.use(StealthPlugin());
 
 const ROOT = "https://pinterest.com";
+
+const NAV_TIMEOUT = 60000;
+const LOGIN_TIMEOUT = 60000;
+// boards that respond at all do so in a few seconds, so a miss is cheap to
+// detect and retrying costs far less than a long single attempt
+const BOARD_FEED_TIMEOUT = 20000;
+const BOARD_ATTEMPTS = 3;
+
+// present only once the authenticated shell has rendered
+const LOGGED_IN_SELECTOR =
+  '[data-test-id=header-profile], [data-test-id=homefeed-feed], [aria-label="Saved"]';
+
+const LOCKOUT_RE = /too many login attempts|zbyt wiele prób/i;
+
+// Pinterest authenticates through this XHR and stays on the same document, so
+// the submit never performs a navigation that could be awaited.
+const SESSION_ENDPOINT = "/resource/UserSessionResource/create/";
+
+// The logged-out page also carries an off-screen signup form owning plain
+// #email / #password, so the login modal's own fields are addressed explicitly.
+const LOGIN_EMAIL = "#streamlined-login-email";
+const LOGIN_PASSWORD = "#streamlined-login-password";
+const LOGIN_SUBMIT = `form:has(${LOGIN_PASSWORD}) button[type="submit"]`;
 
 const sleep = (time: number) =>
   new Promise((resolve) => setTimeout(resolve, time));
@@ -160,6 +185,58 @@ const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
   return pins;
 })`;
 
+const crawlBoardOnce = async (
+  page: any,
+  boardUrl: string,
+  profile: string,
+  knownPinIds?: string[],
+): Promise<CrawledPin[]> => {
+  const boardName = boardUrl.split("/").filter(Boolean).pop()!;
+
+  // require the captured feed request to belong to THIS board (its source_url
+  // carries the board path) so we never replay a neighbouring board's request
+  const waitFirst = page.waitForResponse(
+    (r: any) => {
+      const u = r.url();
+      return (
+        /\/resource\/BoardFeedResource\/get\//.test(u) &&
+        decodeURIComponent(u).includes(`/${profile}/${boardName}/`)
+      );
+    },
+    { timeout: BOARD_FEED_TIMEOUT },
+  );
+
+  await page.goto(boardUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: NAV_TIMEOUT,
+  });
+  const firstReq = (await waitFirst).request();
+  const firstUrl = firstReq.url();
+  const rawHeaders = firstReq.headers();
+  const skip = new Set([
+    "cookie",
+    "host",
+    "content-length",
+    "accept-encoding",
+    "connection",
+    "content-type",
+  ]);
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawHeaders)) {
+    if (k.startsWith(":") || skip.has(k.toLowerCase())) continue;
+    headers[k] = v as string;
+  }
+
+  const pins = (await page.evaluate(
+    `(${PIN_PAGINATE})(${JSON.stringify(firstUrl)}, ${JSON.stringify(headers)}, ${JSON.stringify(knownPinIds ?? [])})`,
+  )) as CrawledPin[];
+
+  return pins.filter((pin) => pin.biggestSrc && pin.biggestSrc.length > 0);
+};
+
+// The feed request is intermittently not observed within the timeout; a fresh
+// navigation recovers it. Throws once the attempts are spent, because an empty
+// result here is indistinguishable from a board whose pins were all removed.
 const crawlBoard = async (
   page: any,
   boardUrl: string,
@@ -167,52 +244,23 @@ const crawlBoard = async (
   knownPinIds?: string[],
 ): Promise<CrawledPin[]> => {
   log.info("crawling board %s", boardUrl);
-  const boardName = boardUrl.split("/").filter(Boolean).pop()!;
 
-  try {
-    // require the captured feed request to belong to THIS board (its source_url
-    // carries the board path) so we never replay a neighbouring board's request
-    const waitFirst = page.waitForResponse(
-      (r: any) => {
-        const u = r.url();
-        return (
-          /\/resource\/BoardFeedResource\/get\//.test(u) &&
-          decodeURIComponent(u).includes(`/${profile}/${boardName}/`)
-        );
-      },
-      { timeout: 45000 },
-    );
-
-    await page.goto(boardUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-    const firstReq = (await waitFirst).request();
-    const firstUrl = firstReq.url();
-    const rawHeaders = firstReq.headers();
-    const skip = new Set([
-      "cookie",
-      "host",
-      "content-length",
-      "accept-encoding",
-      "connection",
-      "content-type",
-    ]);
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(rawHeaders)) {
-      if (k.startsWith(":") || skip.has(k.toLowerCase())) continue;
-      headers[k] = v as string;
+  let lastError: any;
+  for (let attempt = 1; attempt <= BOARD_ATTEMPTS; attempt++) {
+    try {
+      return await crawlBoardOnce(page, boardUrl, profile, knownPinIds);
+    } catch (e: any) {
+      lastError = e;
+      log.warn(
+        "board %s attempt %d/%d failed: %s",
+        boardUrl,
+        attempt,
+        BOARD_ATTEMPTS,
+        e.message,
+      );
     }
-
-    const pins = (await page.evaluate(
-      `(${PIN_PAGINATE})(${JSON.stringify(firstUrl)}, ${JSON.stringify(headers)}, ${JSON.stringify(knownPinIds ?? [])})`,
-    )) as CrawledPin[];
-
-    return pins.filter((pin) => pin.biggestSrc && pin.biggestSrc.length > 0);
-  } catch (e: any) {
-    log.error("error crawling board %s: %s", boardUrl, e.message);
-    return [];
   }
+  throw lastError;
 };
 
 const crawlProfile = async (
@@ -228,156 +276,271 @@ const crawlProfile = async (
   `);
 };
 
-const loginWithCreds = async (page: any, email: string, password: string) => {
-  await page.goto(ROOT, { waitUntil: "networkidle2", timeout: 60000 });
-  await page.click("[data-test-id=simple-login-button] > button");
-  await sleep(2000);
-  await page.type("#email", email);
-  await sleep(2000);
-  await page.type("#password", password);
-  await sleep(2000);
-  await page.click("[data-test-id=registerFormSubmitButton] > button");
-  await page.waitForNavigation();
+const isLoggedIn = (page: any): Promise<boolean> =>
+  page
+    .evaluate(`!!document.querySelector(${JSON.stringify(LOGGED_IN_SELECTOR)})`)
+    .catch(() => false);
+
+const isLockedOut = async (page: any): Promise<boolean> => {
+  const text = await page
+    .evaluate(`document.body ? document.body.innerText.slice(0, 2000) : ""`)
+    .catch(() => "");
+  return LOCKOUT_RE.test(String(text));
 };
 
-const loginWithCookiesFromChrome = async (page: any) =>
-  new Promise<void>((resolve) => {
-    chrome.getCookies(ROOT, "puppeteer", (_err: any, cookies: any[]) => {
-      page.setCookie(...cookies).then(() => {
-        page.goto(ROOT, { waitUntil: "networkidle2" }).then(() => {
-          resolve();
+// A consent dialog covers the page in the EU and swallows the login click.
+const dismissCookieConsent = async (page: any) => {
+  const dismissed = await page
+    .evaluate(
+      `(() => {
+        var btn = Array.from(document.querySelectorAll("button")).find(function (b) {
+          return /accept all|akceptuj wszystk/i.test(b.innerText || "");
         });
-      });
+        if (!btn) return false;
+        btn.click();
+        return true;
+      })()`,
+    )
+    .catch(() => false);
+
+  if (dismissed) {
+    log.info("dismissed cookie consent");
+    await sleep(2000);
+  }
+};
+
+const loginWithCreds = async (page: any, email: string, password: string) => {
+  await dismissCookieConsent(page);
+
+  await page.click("[data-test-id=simple-login-button] > button");
+  await page.waitForSelector(LOGIN_EMAIL, {
+    visible: true,
+    timeout: LOGIN_TIMEOUT,
+  });
+
+  await page.type(LOGIN_EMAIL, email);
+  await sleep(1000);
+  await page.type(LOGIN_PASSWORD, password);
+  await sleep(1000);
+
+  // Armed before the click so a fast response cannot land first.
+  const authStatus = page
+    .waitForResponse((r: any) => r.url().includes(SESSION_ENDPOINT), {
+      timeout: LOGIN_TIMEOUT,
+    })
+    .then((r: any) => r.status())
+    .catch(() => null);
+
+  await page.click(LOGIN_SUBMIT);
+
+  const status = await authStatus;
+  if (status === 401 || status === 403) {
+    throw new Error(`credentials rejected (HTTP ${status})`);
+  }
+  if (status === 429) {
+    throw new Error("login rate limited by pinterest, wait before retrying");
+  }
+
+  // The authenticated shell renders after the XHR resolves, so success is
+  // confirmed against the DOM rather than the status code alone.
+  const deadline = Date.now() + LOGIN_TIMEOUT;
+  while (Date.now() < deadline) {
+    if (await isLoggedIn(page)) return;
+    if (await isLockedOut(page)) {
+      throw new Error(
+        "pinterest answered the login with a rate-limit challenge, wait before retrying",
+      );
+    }
+    await sleep(1000);
+  }
+
+  throw new Error(`login did not complete (url: ${page.url()})`);
+};
+
+const loginWithCookiesFromChrome = async (page: any) => {
+  const cookies = await new Promise<any[]>((resolve, reject) => {
+    chrome.getCookies(ROOT, "puppeteer", (err: any, result: any[]) => {
+      if (err) reject(err);
+      else resolve(result ?? []);
     });
   });
 
-const createBrowser = async (options: PinterestConfig) => {
+  await page.setCookie(...cookies);
+  await page.goto(ROOT, { waitUntil: "networkidle2", timeout: NAV_TIMEOUT });
+
+  if (!(await isLoggedIn(page))) {
+    throw new Error("chrome cookies did not produce a logged-in session");
+  }
+};
+
+export interface PinterestSession {
+  browser: any;
+  page: any;
+}
+
+const openSession = async (
+  options: PinterestConfig,
+): Promise<PinterestSession> => {
   assert(options.profile, "requires profile option");
+
+  // Chrome persists its cookie jar here, so a session survives across runs and
+  // the credential login is only reached when it has actually expired.
+  const sessionDir = sourceSessionDir("pinterest");
+  fs.mkdirSync(sessionDir, { recursive: true });
 
   const browser = await puppeteer.launch({
     headless: true,
     protocolTimeout: 0,
+    userDataDir: sessionDir,
   });
 
-  const page = await browser.newPage();
-  await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 2 });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 2 });
+    await page.goto(ROOT, { waitUntil: "networkidle2", timeout: NAV_TIMEOUT });
 
-  if (options.loginMethod === "cookies") {
-    await loginWithCookiesFromChrome(page);
-  } else if (options.loginMethod === "password") {
-    await loginWithCreds(page, options.username!, options.password!);
-  } else {
-    throw new Error("invalid login option");
+    if (await isLoggedIn(page)) {
+      log.info("reusing stored session");
+      return { browser, page };
+    }
+
+    log.info("stored session invalid, logging in via %s", options.loginMethod);
+    if (options.loginMethod === "cookies") {
+      await loginWithCookiesFromChrome(page);
+    } else if (options.loginMethod === "password") {
+      await loginWithCreds(page, options.username!, options.password!);
+    } else {
+      throw new Error("invalid login option");
+    }
+
+    return { browser, page };
+  } catch (e) {
+    await browser.close();
+    throw e;
   }
-
-  return { browser, page };
 };
 
+// One browser for the whole run: the profile directory is locked by the running
+// Chrome, and each login costs a credential attempt against Pinterest's limiter.
+export const withSession = async <T>(
+  options: PinterestConfig,
+  fn: (session: PinterestSession) => Promise<T>,
+): Promise<T> => {
+  const session = await openSession(options);
+  try {
+    return await fn(session);
+  } finally {
+    await session.browser.close();
+  }
+};
+
+export interface BoardCrawl {
+  pins: CrawledPin[];
+  failedBoards: string[];
+  totalBoards: number;
+}
+
 export const crawlBoards = async (
+  session: PinterestSession,
   options: PinterestConfig,
   recentPinIdsByBoard?: Map<string, string[]>,
-): Promise<CrawledPin[]> => {
-  const { browser, page } = await createBrowser(options);
+): Promise<BoardCrawl> => {
+  const { page } = session;
 
-  try {
-    const boards = await crawlProfile(
-      page,
-      ROOT + "/" + options.profile + "/boards",
-    );
+  const boards = await crawlProfile(
+    page,
+    ROOT + "/" + options.profile + "/boards",
+  );
 
-    const allPins: CrawledPin[] = [];
-    for (const board of boards) {
-      const boardName = board.split("/").filter(Boolean).pop()!;
-      const knownPinIds = recentPinIdsByBoard?.get(boardName);
-      try {
-        const pins = await crawlBoard(
-          page,
-          board,
-          options.profile!,
-          knownPinIds,
-        );
-        log.info("board pins: %s %d", board, pins.length);
-        allPins.push(...pins.map((pin) => ({ ...pin, board: boardName })));
-      } catch (e: any) {
-        log.error("error crawling board %s: %s", board, e.message);
-      }
+  const pins: CrawledPin[] = [];
+  const failedBoards: string[] = [];
+  for (const board of boards) {
+    const boardName = board.split("/").filter(Boolean).pop()!;
+    const knownPinIds = recentPinIdsByBoard?.get(boardName);
+    try {
+      const boardPins = await crawlBoard(
+        page,
+        board,
+        options.profile!,
+        knownPinIds,
+      );
+      log.info("board pins: %s %d", board, boardPins.length);
+      pins.push(...boardPins.map((pin) => ({ ...pin, board: boardName })));
+    } catch (e: any) {
+      log.error("giving up on board %s: %s", board, e.message);
+      failedBoards.push(boardName);
     }
-    return allPins;
-  } finally {
-    await browser.close();
   }
+  return { pins, failedBoards, totalBoards: boards.length };
 };
 
 export const crawlPinMetadata = async (
+  session: PinterestSession,
   options: PinterestConfig,
   pins: CrawledPin[],
 ): Promise<CrawledPinWithMetadata[]> => {
-  const { browser } = await createBrowser(options);
+  const { browser } = session;
   const concurrency = options.concurrency || 4;
 
   const profile = options.profile?.toLowerCase();
 
-  try {
-    const results: CrawledPinWithMetadata[] = [];
-    const queue = [...pins];
-    let droppedPromoted = 0;
-    let droppedForeign = 0;
+  const results: CrawledPinWithMetadata[] = [];
+  const queue = [...pins];
+  let droppedPromoted = 0;
+  let droppedForeign = 0;
 
-    const workers = Array.from({ length: concurrency }, async () => {
-      while (queue.length > 0) {
-        const pin = queue.shift()!;
-        try {
-          const meta = await crawlPin(browser, pin.url);
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (queue.length > 0) {
+      const pin = queue.shift()!;
+      try {
+        const meta = await crawlPin(browser, pin.url);
 
-          if (meta.isPromoted) {
-            droppedPromoted++;
-            log.warn(
-              "dropping promoted pin %s (owner=%s pinner=%s)",
-              pin.url,
-              meta.boardOwner,
-              meta.pinner,
-            );
-            continue;
-          }
-
-          // "More ideas" recommendations aren't promoted; drop pins owned by others
-          // (undefined owner = crawl failure, keep to avoid losing real pins).
-          if (
-            profile &&
-            meta.boardOwner &&
-            meta.boardOwner.toLowerCase() !== profile
-          ) {
-            droppedForeign++;
-            log.warn(
-              "dropping foreign pin %s (owner=%s, not %s)",
-              pin.url,
-              meta.boardOwner,
-              options.profile,
-            );
-            continue;
-          }
-
-          results.push({ ...pin, ...meta });
-        } catch (e: any) {
-          log.error("error crawling pin %s: %s", pin.url, e.message);
-          results.push({ ...pin });
+        if (meta.isPromoted) {
+          droppedPromoted++;
+          log.warn(
+            "dropping promoted pin %s (owner=%s pinner=%s)",
+            pin.url,
+            meta.boardOwner,
+            meta.pinner,
+          );
+          continue;
         }
-      }
-    });
 
-    await Promise.all(workers);
-    if (droppedPromoted) {
-      log.info("dropped %d promoted pins", droppedPromoted);
+        // "More ideas" recommendations aren't promoted; drop pins owned by others
+        // (undefined owner = crawl failure, keep to avoid losing real pins).
+        if (
+          profile &&
+          meta.boardOwner &&
+          meta.boardOwner.toLowerCase() !== profile
+        ) {
+          droppedForeign++;
+          log.warn(
+            "dropping foreign pin %s (owner=%s, not %s)",
+            pin.url,
+            meta.boardOwner,
+            options.profile,
+          );
+          continue;
+        }
+
+        results.push({ ...pin, ...meta });
+      } catch (e: any) {
+        log.error("error crawling pin %s: %s", pin.url, e.message);
+        results.push({ ...pin });
+      }
     }
-    if (droppedForeign) {
-      log.info(
-        "dropped %d foreign pins (not owned by %s)",
-        droppedForeign,
-        options.profile,
-      );
-    }
-    return results;
-  } finally {
-    await browser.close();
+  });
+
+  await Promise.all(workers);
+  if (droppedPromoted) {
+    log.info("dropped %d promoted pins", droppedPromoted);
   }
+  if (droppedForeign) {
+    log.info(
+      "dropped %d foreign pins (not owned by %s)",
+      droppedForeign,
+      options.profile,
+    );
+  }
+  return results;
 };

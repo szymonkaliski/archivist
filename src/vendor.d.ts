@@ -1,13 +1,5 @@
 declare module "*.css" {}
 
-declare module "node-wget" {
-  function wget(
-    options: { url: string; dest: string },
-    callback: (error: any, response: any, body: string) => void,
-  ): void;
-  export default wget;
-}
-
 declare module "node-pinboard" {
   class Pinboard {
     constructor(apiKey: string);

@@ -25,6 +25,9 @@ export const sourceThumbsDir = (source: SourceKind): string =>
 export const sourceFrozenDir = (source: SourceKind): string =>
   path.join(DATA_DIR, source, "frozen");
 
+export const sourceSessionDir = (source: SourceKind): string =>
+  path.join(DATA_DIR, source, "session");
+
 export const ensureDirs = () => {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(CONFIG_DIR, { recursive: true });

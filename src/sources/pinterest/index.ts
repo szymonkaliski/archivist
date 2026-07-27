@@ -3,8 +3,6 @@ import md5 from "md5";
 import path from "path";
 import sharp from "sharp";
 import { imageSize } from "image-size";
-import tmp from "tmp";
-import wget from "node-wget";
 import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
@@ -13,6 +11,7 @@ import type { SourceDefinition, SearchResult } from "../../types";
 import {
   crawlBoards,
   crawlPinMetadata,
+  withSession,
   type CrawledPin,
   type CrawledPinWithMetadata,
 } from "./crawler";
@@ -38,36 +37,30 @@ const download = async (
   url: string,
 ): Promise<{ filename: string; width: number; height: number }> => {
   log.debug("downloading %s", url);
-  const tempPath = tmp.tmpNameSync();
 
-  return new Promise((resolve, reject) =>
-    (wget as any)(
-      { url, dest: tempPath },
-      (error: any, _: any, body: string) => {
-        if (error) return reject(error);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
 
-        const ext = path.extname(url);
-        const hash = md5(body);
-        const filename = `${hash}${ext}`;
-        const finalPath = path.join(ASSETS_PATH, filename);
+  // Buffering the whole body keeps the completeness check honest: a truncated
+  // image still has a readable header, so short bytes would otherwise only
+  // surface later as a decode failure.
+  const buf = Buffer.from(await res.arrayBuffer());
+  const expected = Number(res.headers.get("content-length"));
+  if (Number.isFinite(expected) && expected > 0 && buf.length !== expected) {
+    throw new Error(`truncated download: ${buf.length}/${expected} bytes`);
+  }
 
-        fs.renameSync(tempPath, finalPath);
+  const filename = `${md5(buf)}${path.extname(url)}`;
+  const finalPath = path.join(ASSETS_PATH, filename);
+  fs.writeFileSync(finalPath, buf);
 
-        try {
-          const buf = fs.readFileSync(finalPath);
-          const size = imageSize(new Uint8Array(buf));
-          resolve({
-            filename,
-            width: size.width || 0,
-            height: size.height || 0,
-          });
-        } catch (err) {
-          log.warn(`image-size error: ${err} (${finalPath})`);
-          resolve({ filename, width: 0, height: 0 });
-        }
-      },
-    ),
-  );
+  try {
+    const size = imageSize(new Uint8Array(buf));
+    return { filename, width: size.width || 0, height: size.height || 0 };
+  } catch (err) {
+    log.warn(`image-size error: ${err} (${finalPath})`);
+    return { filename, width: 0, height: 0 };
+  }
 };
 
 const fetchPins = async (
@@ -114,16 +107,13 @@ const createThumbnails = async (db: Database.Database) => {
         const meta = await sharp(inputPath).metadata();
         const w = meta.width || 0;
         const h = meta.height || 0;
-        if (w <= THUMB_SIZE && h <= THUMB_SIZE) {
-          fs.copyFileSync(inputPath, outputPath);
-        } else {
-          await sharp(inputPath).resize(THUMB_SIZE).png().toFile(outputPath);
-        }
+        // Always re-encode. libvips selects its loader from the file extension,
+        // so copying e.g. heic bytes to a .png name yields an unreadable thumb.
+        const image = sharp(inputPath);
+        if (w > THUMB_SIZE || h > THUMB_SIZE) image.resize(THUMB_SIZE);
+        await image.png().toFile(outputPath);
       } catch (e: any) {
         log.error("error making thumbnail for: %s %s", inputPath, String(e));
-        try {
-          fs.copyFileSync(inputPath, outputPath);
-        } catch {}
       }
     }
   }
@@ -210,54 +200,85 @@ const pinterest: SourceDefinition<"pinterest"> = {
       }
     }
 
-    const crawledPins = await crawlBoards(config, recentPinIdsByBoard);
+    // Both crawl phases share one browser, so the run costs at most one login.
+    const crawled = await withSession(config, async (session) => {
+      const {
+        pins: crawledPins,
+        failedBoards,
+        totalBoards,
+      } = await crawlBoards(session, config, recentPinIdsByBoard);
 
-    if (crawledPins.length === 0) {
+      // In appendOnly mode zero pins is the normal steady state, so these have
+      // to be raised before it, or a wholly broken crawl reads as "nothing new".
+      if (totalBoards === 0) {
+        throw new Error("no boards found on profile page");
+      }
+      if (failedBoards.length === totalBoards) {
+        throw new Error(`all ${totalBoards} boards failed to crawl`);
+      }
+
+      if (crawledPins.length === 0) return null;
+
+      const DATA_DIR = path.dirname(ASSETS_PATH);
+      fs.writeFileSync(
+        path.join(DATA_DIR, "crawled-pins.json"),
+        JSON.stringify(crawledPins, null, 2),
+        "utf-8",
+      );
+
+      const newPins = crawledPins.filter((pin) => {
+        if (!pin) return false;
+        const pinid = makePinId(pin);
+        return (search.get(pinid) as { count: number }).count === 0;
+      });
+
+      if (failedBoards.length > 0) {
+        log.warn(`boards that failed to crawl: ${failedBoards.join(", ")}`);
+      }
+
+      // A board that failed to crawl contributes no pins, which is
+      // indistinguishable from every one of its pins having been deleted, so
+      // reconciling removals against a partial crawl would unlink live assets.
+      if (!config.appendOnly && failedBoards.length === 0) {
+        const removedPins = dbPins.filter(
+          ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
+        );
+
+        log.info(
+          `crawled pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
+        );
+
+        if (removedPins.length > 0) {
+          for (const pin of removedPins) {
+            const filePath =
+              pin.filename && path.join(ASSETS_PATH, pin.filename);
+            if (filePath && fs.existsSync(filePath)) {
+              log.info(`unlinking ${filePath}`);
+              fs.unlinkSync(filePath);
+            }
+          }
+          db.transaction((pins: PinDbRow[]) => {
+            for (const pin of pins) remove.run(pin.pinid);
+          })(removedPins);
+        }
+      } else {
+        log.info(
+          `crawled pins: ${crawledPins.length} / new pins: ${newPins.length}`,
+        );
+      }
+
+      return {
+        newPins,
+        newPinsWithMetadata: await crawlPinMetadata(session, config, newPins),
+      };
+    });
+
+    if (!crawled) {
       log.warn("0 crawled pins, exiting");
       return;
     }
 
-    const DATA_DIR = path.dirname(ASSETS_PATH);
-    fs.writeFileSync(
-      path.join(DATA_DIR, "crawled-pins.json"),
-      JSON.stringify(crawledPins, null, 2),
-      "utf-8",
-    );
-
-    const newPins = crawledPins.filter((pin) => {
-      if (!pin) return false;
-      const pinid = makePinId(pin);
-      return (search.get(pinid) as { count: number }).count === 0;
-    });
-
-    if (!config.appendOnly) {
-      const removedPins = dbPins.filter(
-        ({ pinid }) => !crawledPins.find((pin) => makePinId(pin) === pinid),
-      );
-
-      log.info(
-        `crawled pins: ${crawledPins.length} / new pins: ${newPins.length} / removed pins: ${removedPins.length}`,
-      );
-
-      if (removedPins.length > 0) {
-        for (const pin of removedPins) {
-          const filePath = pin.filename && path.join(ASSETS_PATH, pin.filename);
-          if (filePath && fs.existsSync(filePath)) {
-            log.info(`unlinking ${filePath}`);
-            fs.unlinkSync(filePath);
-          }
-        }
-        db.transaction((pins: PinDbRow[]) => {
-          for (const pin of pins) remove.run(pin.pinid);
-        })(removedPins);
-      }
-    } else {
-      log.info(
-        `crawled pins: ${crawledPins.length} / new pins: ${newPins.length}`,
-      );
-    }
-
-    const newPinsWithMetadata = await crawlPinMetadata(config, newPins);
+    const { newPins, newPinsWithMetadata } = crawled;
     const fetchedPins = await fetchPins(
       newPinsWithMetadata,
       config.concurrency,
