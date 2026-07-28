@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
+import { withRetry } from "../../retry";
 
 const log = createLogger("arena");
 
@@ -97,14 +98,14 @@ interface ArenaDbRow {
   height: number;
 }
 
-const MAX_RETRIES = 5;
+const API_ATTEMPTS = 6;
+const DOWNLOAD_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 2000;
 
 const apiFetch = async (
   endpoint: string,
   token: string,
   params?: Record<string, string | number>,
-  retries = 0,
 ): Promise<any> => {
   const url = new URL(`${API_BASE}${endpoint}`);
   if (params) {
@@ -113,55 +114,48 @@ const apiFetch = async (
     }
   }
 
-  const retryAfter = async (waitMs: number, reason: string) => {
-    log.warn(
-      `${reason}, waiting ${Math.ceil(waitMs / 1000)}s (retry ${retries + 1}/${MAX_RETRIES})`,
-    );
-    await new Promise((r) => setTimeout(r, waitMs));
-    return apiFetch(endpoint, token, params, retries + 1);
-  };
-
   // An error thrown here propagates past every caller and aborts the whole
   // source for the run, so transient connection failures are retried.
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch (e: any) {
-    if (retries >= MAX_RETRIES) {
-      throw new Error(
-        `network error after ${MAX_RETRIES} retries: ${endpoint}: ${e.message}`,
-      );
-    }
-    return retryAfter(BACKOFF_BASE_MS * 2 ** retries, `network error (${e})`);
-  }
+  return withRetry(
+    {
+      label: endpoint,
+      attempts: API_ATTEMPTS,
+      backoff: { kind: "exponential", baseMs: BACKOFF_BASE_MS },
+      log,
+    },
+    async () => {
+      let res: Response;
+      try {
+        res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (e: any) {
+        return { kind: "retry", reason: `network error (${e})` };
+      }
 
-  if (res.status === 429) {
-    if (retries >= MAX_RETRIES) {
-      throw new Error(`rate limited after ${MAX_RETRIES} retries: ${endpoint}`);
-    }
-    const reset = res.headers.get("X-RateLimit-Reset");
-    const waitMs = reset
-      ? Math.max(0, Number(reset) * 1000 - Date.now())
-      : 60_000;
-    return retryAfter(waitMs + 1000, "rate limited");
-  }
+      if (res.status === 429) {
+        const reset = res.headers.get("X-RateLimit-Reset");
+        const waitMs = reset
+          ? Math.max(0, Number(reset) * 1000 - Date.now())
+          : 60_000;
+        return {
+          kind: "retry-after",
+          reason: "rate limited",
+          waitMs: waitMs + 1000,
+        };
+      }
 
-  if (res.status >= 500) {
-    if (retries >= MAX_RETRIES) {
-      throw new Error(
-        `API ${res.status} after ${MAX_RETRIES} retries: ${endpoint}`,
-      );
-    }
-    return retryAfter(BACKOFF_BASE_MS * 2 ** retries, `API ${res.status}`);
-  }
+      if (res.status >= 500) {
+        return { kind: "retry", reason: `API ${res.status}: ${endpoint}` };
+      }
 
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${endpoint}`);
-  }
+      if (!res.ok) {
+        return { kind: "fail", reason: `API ${res.status}: ${endpoint}` };
+      }
 
-  return res.json();
+      return { kind: "done", value: await res.json() };
+    },
+  );
 };
 
 const fetchChannels = async (
@@ -220,23 +214,53 @@ const downloadImage = async (
   blockId: number,
 ): Promise<{ filename: string; width: number; height: number } | null> => {
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    return await withRetry(
+      {
+        label: `image for block ${blockId}`,
+        attempts: DOWNLOAD_ATTEMPTS,
+        backoff: { kind: "exponential", baseMs: BACKOFF_BASE_MS },
+        log,
+      },
+      async () => {
+        let res: Response;
+        try {
+          res = await fetch(url);
+        } catch (e: any) {
+          return { kind: "retry", reason: `network error (${e})` };
+        }
 
-    const buf = Buffer.from(await res.arrayBuffer());
-    const ext = path.extname(new URL(url).pathname).split("?")[0] || ".jpg";
-    const filename = `${blockId}${ext}`;
-    const dest = path.join(ASSETS_PATH, filename);
+        if (res.status >= 500) {
+          return { kind: "retry", reason: `HTTP ${res.status}` };
+        }
+        if (!res.ok) {
+          return { kind: "fail", reason: `HTTP ${res.status}` };
+        }
 
-    fs.writeFileSync(dest, buf);
+        const buf = Buffer.from(await res.arrayBuffer());
+        const ext = path.extname(new URL(url).pathname).split("?")[0] || ".jpg";
+        const filename = `${blockId}${ext}`;
+        const dest = path.join(ASSETS_PATH, filename);
 
-    try {
-      const size = imageSize(new Uint8Array(buf));
-      return { filename, width: size.width || 0, height: size.height || 0 };
-    } catch {
-      return { filename, width: 0, height: 0 };
-    }
+        fs.writeFileSync(dest, buf);
+
+        try {
+          const size = imageSize(new Uint8Array(buf));
+          return {
+            kind: "done",
+            value: {
+              filename,
+              width: size.width || 0,
+              height: size.height || 0,
+            },
+          };
+        } catch {
+          return { kind: "done", value: { filename, width: 0, height: 0 } };
+        }
+      },
+    );
   } catch (e: any) {
+    // A null filename is recorded and reconsidered on the next run, so giving
+    // up here costs an hour rather than the block's image.
     log.error("download failed for block %d: %s", blockId, e.message);
     return null;
   }
@@ -257,10 +281,34 @@ const downloadAttachmentAsGif = async (
   const fpsFilter = "fps=15";
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    // only the download is retried; a failed transcode means an unusable file,
+    // and re-running ffmpeg on it is expensive and would fail the same way
+    await withRetry(
+      {
+        label: `attachment for block ${blockId}`,
+        attempts: DOWNLOAD_ATTEMPTS,
+        backoff: { kind: "exponential", baseMs: BACKOFF_BASE_MS },
+        log,
+      },
+      async () => {
+        let res: Response;
+        try {
+          res = await fetch(url);
+        } catch (e: any) {
+          return { kind: "retry", reason: `network error (${e})` };
+        }
 
-    fs.writeFileSync(mp4Path, Buffer.from(await res.arrayBuffer()));
+        if (res.status >= 500) {
+          return { kind: "retry", reason: `HTTP ${res.status}` };
+        }
+        if (!res.ok) {
+          return { kind: "fail", reason: `HTTP ${res.status}` };
+        }
+
+        fs.writeFileSync(mp4Path, Buffer.from(await res.arrayBuffer()));
+        return { kind: "done", value: null };
+      },
+    );
 
     // two-pass: palettegen is the memory hot spot; running it standalone (no
     // split filter holding both branches in flight) keeps peak RSS much lower
@@ -446,12 +494,27 @@ const arena: SourceDefinition<"arena"> = {
       log.info(`removed ${removedRows.length} blocks`);
     }
 
-    // insert new blocks
-    const newBlocks = [...blockData.entries()].filter(
-      ([id]) => !existingIds.has(id),
+    // A block whose download failed is stored with a null filename, so blocks
+    // that should carry an asset but have none are retried on later runs
+    // instead of staying imageless for good.
+    const missingAsset = new Set(
+      dbRows.filter((r) => !r.filename).map((r) => r.block_id),
     );
+    const expectsAsset = (block: ArenaBlock): boolean =>
+      !!block.image?.src ||
+      !!block.attachment?.content_type?.startsWith("video/");
 
-    log.info(`new blocks to fetch: ${newBlocks.length}`);
+    const entries = [...blockData.entries()];
+    const freshBlocks = entries.filter(([id]) => !existingIds.has(id));
+    const assetRetryBlocks = entries.filter(
+      ([id, block]) =>
+        existingIds.has(id) && missingAsset.has(id) && expectsAsset(block),
+    );
+    const newBlocks = [...freshBlocks, ...assetRetryBlocks];
+
+    log.info(
+      `new blocks to fetch: ${freshBlocks.length} / retrying missing assets: ${assetRetryBlocks.length}`,
+    );
 
     const insert = db.prepare(
       `INSERT OR REPLACE INTO arena (global_id, block_id, title, description, content, source_url, block_class, connected_at, channels, filename, width, height)
