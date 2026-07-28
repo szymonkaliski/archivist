@@ -7,6 +7,7 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { createLogger } from "../../logger";
 import { sourceSessionDir } from "../../paths";
 import type { PinterestConfig } from "../../types";
+import { withRetry } from "../../retry";
 
 const log = createLogger("pinterest");
 
@@ -20,6 +21,8 @@ const LOGIN_TIMEOUT = 60000;
 // detect and retrying costs far less than a long single attempt
 const BOARD_FEED_TIMEOUT = 20000;
 const BOARD_ATTEMPTS = 3;
+const PROFILE_ATTEMPTS = 3;
+const PROFILE_BACKOFF_BASE_MS = 2000;
 
 // present only once the authenticated shell has rendered
 const LOGGED_IN_SELECTOR =
@@ -245,35 +248,53 @@ const crawlBoard = async (
 ): Promise<CrawledPin[]> => {
   log.info("crawling board %s", boardUrl);
 
-  let lastError: any;
-  for (let attempt = 1; attempt <= BOARD_ATTEMPTS; attempt++) {
-    try {
-      return await crawlBoardOnce(page, boardUrl, profile, knownPinIds);
-    } catch (e: any) {
-      lastError = e;
-      log.warn(
-        "board %s attempt %d/%d failed: %s",
-        boardUrl,
-        attempt,
-        BOARD_ATTEMPTS,
-        e.message,
-      );
-    }
-  }
-  throw lastError;
+  return withRetry(
+    {
+      label: `board ${boardUrl}`,
+      attempts: BOARD_ATTEMPTS,
+      backoff: { kind: "immediate" },
+      log,
+    },
+    async () => ({
+      kind: "done",
+      value: await crawlBoardOnce(page, boardUrl, profile, knownPinIds),
+    }),
+  );
 };
 
+// An empty board list aborts the whole source, and Pinterest intermittently
+// serves the profile before the board grid renders, so an empty result is
+// retried rather than trusted.
 const crawlProfile = async (
   page: any,
   profileUrl: string,
 ): Promise<string[]> => {
   log.info("crawling profile %s", profileUrl);
-  await page.goto(profileUrl, { waitUntil: "networkidle2", timeout: 60000 });
-  return await page.evaluate(`
-    Array.from(document.querySelectorAll('[aria-label="Board"]')).map(
-      (el) => el.querySelector("a").href
-    )
-  `);
+
+  return withRetry(
+    {
+      label: `profile ${profileUrl}`,
+      attempts: PROFILE_ATTEMPTS,
+      backoff: { kind: "exponential", baseMs: PROFILE_BACKOFF_BASE_MS },
+      log,
+    },
+    async () => {
+      await page.goto(profileUrl, {
+        waitUntil: "networkidle2",
+        timeout: 60000,
+      });
+      const boards: string[] = await page.evaluate(`
+        Array.from(document.querySelectorAll('[aria-label="Board"]')).map(
+          (el) => el.querySelector("a").href
+        )
+      `);
+
+      if (boards.length === 0) {
+        return { kind: "retry", reason: "no boards on profile page" };
+      }
+      return { kind: "done", value: boards };
+    },
+  );
 };
 
 const isLoggedIn = (page: any): Promise<boolean> =>

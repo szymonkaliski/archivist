@@ -208,11 +208,8 @@ const pinterest: SourceDefinition<"pinterest"> = {
         totalBoards,
       } = await crawlBoards(session, config, recentPinIdsByBoard);
 
-      // In appendOnly mode zero pins is the normal steady state, so these have
-      // to be raised before it, or a wholly broken crawl reads as "nothing new".
-      if (totalBoards === 0) {
-        throw new Error("no boards found on profile page");
-      }
+      // In appendOnly mode zero pins is the normal steady state, so this has to
+      // be raised before it, or a wholly broken crawl reads as "nothing new".
       if (failedBoards.length === totalBoards) {
         throw new Error(`all ${totalBoards} boards failed to crawl`);
       }
