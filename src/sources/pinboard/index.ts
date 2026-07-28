@@ -15,6 +15,7 @@ import {
   sourceDir,
 } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
+import { withRetry } from "../../retry";
 import { fetchLinks, type PinboardLink, type FetcherResult } from "./fetcher";
 
 const log = createLogger("pinboard");
@@ -23,6 +24,18 @@ const ASSETS_PATH = sourceAssetsDir("pinboard");
 const FROZEN_PATH = sourceFrozenDir("pinboard");
 const THUMBS_PATH = sourceThumbsDir("pinboard");
 const THUMB_SIZE = 400;
+
+// pinboard.in documents posts/all as callable once every five minutes and
+// answers 429 past that, so the one retry waits out the whole window rather
+// than spending its attempts inside it.
+const API_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 300_000;
+
+// node-pinboard builds the request URL with the API token in the query string
+// and node-fetch quotes that URL back in every error it throws, so the token
+// reaches the logs unless it is stripped here.
+export const redactToken = (message: string): string =>
+  message.replace(/auth_token=[^&\s]+/g, "auth_token=[redacted]");
 
 const globalId = (hash: string): string => `pinboard:${hash}`;
 
@@ -94,7 +107,28 @@ const pinboard: SourceDefinition<"pinboard"> = {
     fs.mkdirSync(THUMBS_PATH, { recursive: true });
 
     const pinboardApi = new Pinboard(config.apiKey);
-    let crawledLinks: any = await pinboardApi.all();
+
+    // node-pinboard parses the body as JSON without checking the status, so a
+    // 5xx surfaces as a JSON syntax error rather than an HTTP error; every
+    // failure mode is transient enough to be worth retrying.
+    let crawledLinks: any = await withRetry(
+      {
+        label: "pinboard posts/all",
+        attempts: API_ATTEMPTS,
+        backoff: { kind: "fixed", ms: RETRY_DELAY_MS },
+        log,
+      },
+      async () => {
+        try {
+          return { kind: "done", value: await pinboardApi.all() };
+        } catch (e: any) {
+          return {
+            kind: "retry",
+            reason: redactToken(e?.message ?? String(e)),
+          };
+        }
+      },
+    );
 
     if (typeof crawledLinks === "string") {
       try {
