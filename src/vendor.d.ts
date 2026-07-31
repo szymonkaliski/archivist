@@ -1,13 +1,5 @@
 declare module "*.css" {}
 
-declare module "node-pinboard" {
-  class Pinboard {
-    constructor(apiKey: string);
-    all(): Promise<any>;
-  }
-  export default Pinboard;
-}
-
 declare module "chrome-cookies-secure" {
   export function getCookies(
     url: string,

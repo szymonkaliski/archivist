@@ -5,7 +5,7 @@ import { redactToken } from "../sources/pinboard/index";
 const SECRET = "0000AAAA1111BBBB2222";
 const TOKEN = `testuser%3A${SECRET}`;
 
-// the three failure shapes node-fetch has actually produced for posts/all
+// shapes that quote the request url back, which is where the token would leak
 const MESSAGES = [
   `invalid json response body at https://api.pinboard.in/v1/posts/all?auth_token=${TOKEN}&format=json reason: Unexpected token 'A', "An interna"... is not valid JSON`,
   `request to https://api.pinboard.in/v1/posts/all?auth_token=${TOKEN}&format=json failed, reason: connect ETIMEDOUT`,

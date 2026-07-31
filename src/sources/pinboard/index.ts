@@ -1,10 +1,6 @@
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
-import PinboardModule from "node-pinboard";
-
-// node-pinboard is CJS with module.exports = class; ESM interop double-wraps it
-const Pinboard = (PinboardModule as any).default ?? PinboardModule;
 import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
@@ -16,6 +12,7 @@ import {
 } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
 import { withRetry } from "../../retry";
+import { fetchWithDeadline, describeFetchError } from "../../http";
 import { fetchLinks, type PinboardLink, type FetcherResult } from "./fetcher";
 
 const log = createLogger("pinboard");
@@ -25,17 +22,104 @@ const FROZEN_PATH = sourceFrozenDir("pinboard");
 const THUMBS_PATH = sourceThumbsDir("pinboard");
 const THUMB_SIZE = 400;
 
+const API_URL = "https://api.pinboard.in/v1/posts/all";
+
 // pinboard.in documents posts/all as callable once every five minutes and
 // answers 429 past that, so the one retry waits out the whole window rather
 // than spending its attempts inside it.
 const API_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 300_000;
 
-// node-pinboard builds the request URL with the API token in the query string
-// and node-fetch quotes that URL back in every error it throws, so the token
-// reaches the logs unless it is stripped here.
+// the api answers the tcp handshake and then goes silent for hours at a time,
+// which leaves the socket established with no transport-level timeout to break
+// it, so the request carries its own deadline.
+const API_TIMEOUT_MS = 60_000;
+
+// enough of an unexpected body to identify it in the log without pasting a
+// whole error page into the journal
+const BODY_PREVIEW = 200;
+
+// the request url carries the api token in its query string, and both error
+// messages and server error pages can quote that url back, so every reason
+// built from a response passes through here before it is logged.
 export const redactToken = (message: string): string =>
   message.replace(/auth_token=[^&\s]+/g, "auth_token=[redacted]");
+
+// JSON.parse rejects a leading byte order mark, which the api has no obligation
+// to omit
+const stripBom = (body: string): string =>
+  body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+
+const fetchAllPosts = async (apiKey: string): Promise<PinboardLink[]> => {
+  const url = new URL(API_URL);
+  url.searchParams.set("auth_token", apiKey);
+  url.searchParams.set("format", "json");
+
+  // An error thrown here propagates past every caller and aborts the whole
+  // source for the run, so anything that might be transient is retried.
+  return withRetry(
+    {
+      label: "posts/all",
+      attempts: API_ATTEMPTS,
+      backoff: { kind: "fixed", ms: RETRY_DELAY_MS },
+      log,
+    },
+    async () => {
+      let res: Response;
+      let body: string;
+      try {
+        res = await fetchWithDeadline(url.toString(), API_TIMEOUT_MS, {
+          headers: { Accept: "application/json" },
+        });
+        // read inside the deadline too, so a stall part-way through the body
+        // aborts rather than hanging on an open response
+        body = await res.text();
+      } catch (e: any) {
+        return {
+          kind: "retry",
+          reason: redactToken(describeFetchError(e, API_TIMEOUT_MS)),
+        };
+      }
+
+      // the only documented permanent rejection; every other status could be a
+      // transient block and falls through to a retry
+      if (res.status === 401) {
+        return { kind: "fail", reason: "api rejected the token (401)" };
+      }
+
+      if (res.status === 429) {
+        return {
+          kind: "retry-after",
+          reason: "rate limited",
+          waitMs: RETRY_DELAY_MS,
+        };
+      }
+
+      if (!res.ok) {
+        return { kind: "retry", reason: `API ${res.status}` };
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stripBom(body));
+      } catch {
+        return {
+          kind: "retry",
+          reason: `body was not json: ${redactToken(body.slice(0, BODY_PREVIEW))}`,
+        };
+      }
+
+      if (!Array.isArray(parsed)) {
+        return {
+          kind: "retry",
+          reason: `expected an array of posts, got ${typeof parsed}`,
+        };
+      }
+
+      return { kind: "done", value: parsed as PinboardLink[] };
+    },
+  );
+};
 
 const globalId = (hash: string): string => `pinboard:${hash}`;
 
@@ -106,39 +190,7 @@ const pinboard: SourceDefinition<"pinboard"> = {
     fs.mkdirSync(FROZEN_PATH, { recursive: true });
     fs.mkdirSync(THUMBS_PATH, { recursive: true });
 
-    const pinboardApi = new Pinboard(config.apiKey);
-
-    // node-pinboard parses the body as JSON without checking the status, so a
-    // 5xx surfaces as a JSON syntax error rather than an HTTP error; every
-    // failure mode is transient enough to be worth retrying.
-    let crawledLinks: any = await withRetry(
-      {
-        label: "pinboard posts/all",
-        attempts: API_ATTEMPTS,
-        backoff: { kind: "fixed", ms: RETRY_DELAY_MS },
-        log,
-      },
-      async () => {
-        try {
-          return { kind: "done", value: await pinboardApi.all() };
-        } catch (e: any) {
-          return {
-            kind: "retry",
-            reason: redactToken(e?.message ?? String(e)),
-          };
-        }
-      },
-    );
-
-    if (typeof crawledLinks === "string") {
-      try {
-        crawledLinks = JSON.parse(crawledLinks.slice(1));
-      } catch {}
-    }
-    if (typeof crawledLinks === "string") {
-      log.error("unrecoverable issue with crawled links");
-      return;
-    }
+    const crawledLinks = await fetchAllPosts(config.apiKey);
 
     fs.writeFileSync(
       path.join(sourceDir("pinboard"), "crawled-links.json"),
@@ -160,12 +212,11 @@ const pinboard: SourceDefinition<"pinboard"> = {
       .all() as PinboardDbRow[];
 
     const newLinks = crawledLinks.filter(
-      (link: PinboardLink) =>
-        (search.get(link.hash) as { count: number }).count === 0,
+      (link) => (search.get(link.hash) as { count: number }).count === 0,
     );
 
     const removedLinks = dbLinks.filter(
-      ({ hash }) => !crawledLinks.find((l: PinboardLink) => l.hash === hash),
+      ({ hash }) => !crawledLinks.find((l) => l.hash === hash),
     );
 
     log.info(
