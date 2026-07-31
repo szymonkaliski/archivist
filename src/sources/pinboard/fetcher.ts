@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 
 import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceFrozenDir } from "../../paths";
+import { fetchWithDeadline } from "../../http";
 
 const log = createLogger("pinboard");
 
@@ -28,6 +29,10 @@ const getFreezeDrySrc = () => {
 
 const WAYBACK_API = "https://archive.org/wayback/available?url=";
 const ARCHIVE_TODAY_BASE = "https://archive.today/newest/";
+
+// both archives are best-effort fallbacks for a dead link, and a stalled lookup
+// would block one of the fetch workers for the rest of the run
+const ARCHIVE_TIMEOUT_MS = 30_000;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -130,8 +135,9 @@ const savePageInternal = async (
 
 const tryWayback = async (link: string): Promise<string | null> => {
   try {
-    const res = await globalThis.fetch(
+    const res = await fetchWithDeadline(
       `${WAYBACK_API}${encodeURIComponent(link)}`,
+      ARCHIVE_TIMEOUT_MS,
     );
     const data = await res.json();
     const closest = data?.archived_snapshots?.closest;
@@ -148,13 +154,17 @@ const tryWayback = async (link: string): Promise<string | null> => {
 
 const tryArchiveToday = async (link: string): Promise<string | null> => {
   try {
-    const res = await globalThis.fetch(`${ARCHIVE_TODAY_BASE}${link}`, {
-      redirect: "manual",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    const res = await fetchWithDeadline(
+      `${ARCHIVE_TODAY_BASE}${link}`,
+      ARCHIVE_TIMEOUT_MS,
+      {
+        redirect: "manual",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        },
       },
-    });
+    );
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
       if (location) {
