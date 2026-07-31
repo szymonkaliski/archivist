@@ -17,9 +17,17 @@ const ROOT = "https://pinterest.com";
 
 const NAV_TIMEOUT = 60000;
 const LOGIN_TIMEOUT = 60000;
-// boards that respond at all do so in a few seconds, so a miss is cheap to
-// detect and retrying costs far less than a long single attempt
-const BOARD_FEED_TIMEOUT = 20000;
+// Measured over 32 board loads: the request arrives 1.7-2.4s after the
+// navigation starts, or not at all - two boards still had not issued it after
+// 25s. A miss is an absent request rather than a slow one, and what recovers it
+// is the re-navigation the retry performs, not a longer wait. So this only has
+// to outrun the slowest real arrival; every second beyond that is spent waiting
+// for a request that is never coming.
+const BOARD_FEED_TIMEOUT = 6000;
+// the pagination loop runs inside the page, where page.evaluate imposes no
+// timeout of its own, so a feed request that stalls would hang the crawl for
+// the rest of the run. Aborting throws out of the page and costs one attempt.
+const FEED_REQUEST_TIMEOUT = 30000;
 const BOARD_ATTEMPTS = 3;
 const PROFILE_ATTEMPTS = 3;
 const PROFILE_BACKOFF_BASE_MS = 2000;
@@ -157,7 +165,7 @@ const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
     else delete data.options.bookmarks;
     u.searchParams.set("data", JSON.stringify(data));
     u.searchParams.set("_", String(Date.now()));
-    var r = await fetch(u.toString(), { headers: headers, credentials: "include" });
+    var r = await fetch(u.toString(), { headers: headers, credentials: "include", signal: AbortSignal.timeout(${FEED_REQUEST_TIMEOUT}) });
     if (!r.ok) break;
     var j = await r.json();
     var rr = j.resource_response || {};
@@ -208,6 +216,12 @@ const crawlBoardOnce = async (
     },
     { timeout: BOARD_FEED_TIMEOUT },
   );
+
+  // The wait is armed before the navigation so a feed request issued during it
+  // is not missed, which means it can reject while only the goto below is being
+  // awaited. Marking it handled here keeps that from tearing down the process;
+  // the await further down still sees the rejection and spends the attempt.
+  void waitFirst.catch(() => {});
 
   await page.goto(boardUrl, {
     waitUntil: "domcontentloaded",

@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
+import { fetchWithDeadline, describeFetchError } from "../../http";
 import {
   crawlBoards,
   crawlPinMetadata,
@@ -21,6 +22,10 @@ const log = createLogger("pinterest");
 const ASSETS_PATH = sourceAssetsDir("pinterest");
 const THUMBS_PATH = sourceThumbsDir("pinterest");
 const THUMB_SIZE = 400;
+
+// a backstop against a cdn that accepts the request and then stops sending, not
+// a latency target
+const IMAGE_TIMEOUT_MS = 120_000;
 
 const makePinId = (pin: CrawledPin): string =>
   pin.url.split("/").filter(Boolean).pop()!;
@@ -38,13 +43,22 @@ const download = async (
 ): Promise<{ filename: string; width: number; height: number }> => {
   log.debug("downloading %s", url);
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
+  let res: Response;
+  let buf: Buffer;
+  try {
+    res = await fetchWithDeadline(url, IMAGE_TIMEOUT_MS);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
 
-  // Buffering the whole body keeps the completeness check honest: a truncated
-  // image still has a readable header, so short bytes would otherwise only
-  // surface later as a decode failure.
-  const buf = Buffer.from(await res.arrayBuffer());
+    // Buffering the whole body keeps the completeness check honest: a truncated
+    // image still has a readable header, so short bytes would otherwise only
+    // surface later as a decode failure. The deadline is still armed here, so a
+    // body that stalls part-way through aborts rather than hanging.
+    buf = Buffer.from(await res.arrayBuffer());
+  } catch (e: any) {
+    // an http status message has no cause and passes through unchanged
+    throw new Error(describeFetchError(e, IMAGE_TIMEOUT_MS));
+  }
+
   const expected = Number(res.headers.get("content-length"));
   if (Number.isFinite(expected) && expected > 0 && buf.length !== expected) {
     throw new Error(`truncated download: ${buf.length}/${expected} bytes`);
