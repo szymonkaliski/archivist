@@ -12,6 +12,7 @@ import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
 import { withRetry } from "../../retry";
+import { fetchWithDeadline, describeFetchError } from "../../http";
 
 const log = createLogger("arena");
 
@@ -102,6 +103,14 @@ const API_ATTEMPTS = 6;
 const DOWNLOAD_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 2000;
 
+// Deadlines are sized by payload rather than shared: a page of json has no
+// business taking half a minute, while an attachment is a screen recording that
+// legitimately takes minutes on a slow line. Each is a backstop against a peer
+// that stops sending, not a latency target.
+const API_TIMEOUT_MS = 30_000;
+const IMAGE_TIMEOUT_MS = 120_000;
+const ATTACHMENT_TIMEOUT_MS = 300_000;
+
 const apiFetch = async (
   endpoint: string,
   token: string,
@@ -126,11 +135,14 @@ const apiFetch = async (
     async () => {
       let res: Response;
       try {
-        res = await fetch(url.toString(), {
+        res = await fetchWithDeadline(url.toString(), API_TIMEOUT_MS, {
           headers: { Authorization: `Bearer ${token}` },
         });
       } catch (e: any) {
-        return { kind: "retry", reason: `network error (${e})` };
+        return {
+          kind: "retry",
+          reason: describeFetchError(e, API_TIMEOUT_MS),
+        };
       }
 
       if (res.status === 429) {
@@ -153,7 +165,16 @@ const apiFetch = async (
         return { kind: "fail", reason: `API ${res.status}: ${endpoint}` };
       }
 
-      return { kind: "done", value: await res.json() };
+      // the deadline is still armed here, so a body that stalls part-way
+      // through aborts rather than leaving the response open
+      try {
+        return { kind: "done", value: await res.json() };
+      } catch (e: any) {
+        return {
+          kind: "retry",
+          reason: describeFetchError(e, API_TIMEOUT_MS),
+        };
+      }
     },
   );
 };
@@ -222,21 +243,24 @@ const downloadImage = async (
         log,
       },
       async () => {
-        let res: Response;
+        let buf: Buffer;
         try {
-          res = await fetch(url);
+          const res = await fetchWithDeadline(url, IMAGE_TIMEOUT_MS);
+          if (res.status >= 500) {
+            return { kind: "retry", reason: `HTTP ${res.status}` };
+          }
+          if (!res.ok) {
+            return { kind: "fail", reason: `HTTP ${res.status}` };
+          }
+          // read inside the deadline so a stalled body aborts too
+          buf = Buffer.from(await res.arrayBuffer());
         } catch (e: any) {
-          return { kind: "retry", reason: `network error (${e})` };
+          return {
+            kind: "retry",
+            reason: describeFetchError(e, IMAGE_TIMEOUT_MS),
+          };
         }
 
-        if (res.status >= 500) {
-          return { kind: "retry", reason: `HTTP ${res.status}` };
-        }
-        if (!res.ok) {
-          return { kind: "fail", reason: `HTTP ${res.status}` };
-        }
-
-        const buf = Buffer.from(await res.arrayBuffer());
         const ext = path.extname(new URL(url).pathname).split("?")[0] || ".jpg";
         const filename = `${blockId}${ext}`;
         const dest = path.join(ASSETS_PATH, filename);
@@ -291,21 +315,25 @@ const downloadAttachmentAsGif = async (
         log,
       },
       async () => {
-        let res: Response;
+        let buf: Buffer;
         try {
-          res = await fetch(url);
+          const res = await fetchWithDeadline(url, ATTACHMENT_TIMEOUT_MS);
+          if (res.status >= 500) {
+            return { kind: "retry", reason: `HTTP ${res.status}` };
+          }
+          if (!res.ok) {
+            return { kind: "fail", reason: `HTTP ${res.status}` };
+          }
+          // read inside the deadline so a stalled body aborts too
+          buf = Buffer.from(await res.arrayBuffer());
         } catch (e: any) {
-          return { kind: "retry", reason: `network error (${e})` };
+          return {
+            kind: "retry",
+            reason: describeFetchError(e, ATTACHMENT_TIMEOUT_MS),
+          };
         }
 
-        if (res.status >= 500) {
-          return { kind: "retry", reason: `HTTP ${res.status}` };
-        }
-        if (!res.ok) {
-          return { kind: "fail", reason: `HTTP ${res.status}` };
-        }
-
-        fs.writeFileSync(mp4Path, Buffer.from(await res.arrayBuffer()));
+        fs.writeFileSync(mp4Path, buf);
         return { kind: "done", value: null };
       },
     );
