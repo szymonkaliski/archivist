@@ -11,8 +11,14 @@ export const fetchWithDeadline = (
   url: string,
   timeoutMs: number,
   init?: RequestInit,
-): Promise<Response> =>
-  fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+): Promise<Response> => {
+  // composed rather than assigned, so passing a signal cancels the request
+  // without also silently dropping its deadline
+  const signals: AbortSignal[] = [AbortSignal.timeout(timeoutMs)];
+  if (init?.signal) signals.push(init.signal);
+
+  return fetch(url, { ...init, signal: AbortSignal.any(signals) });
+};
 
 // undici collapses transport failures into a bare "fetch failed" TypeError and
 // keeps the real reason on `cause`, so both halves are needed to tell a refused
