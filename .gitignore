@@ -3,3 +3,4 @@ dist/
 node_modules/
 tmp/
 src/sources/pinboard/assets/freeze-dry-browserified.js
+src/sources/pinboard/assets/freeze-dry-source.ts
