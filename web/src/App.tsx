@@ -66,7 +66,7 @@ export const App = () => {
       .catch(() => {});
   }, []);
 
-  const doSearch = useCallback((q: string) => {
+  const doSearch = useCallback((q: string, limit = PAGE_SIZE) => {
     lastQueryRef.current = q;
     loadingRef.current = true;
 
@@ -79,7 +79,7 @@ export const App = () => {
 
     const restore = pendingRestoreRef.current;
     pendingRestoreRef.current = null;
-    const limit = restore ? Math.max(PAGE_SIZE, restore.itemCount) : PAGE_SIZE;
+    if (restore) limit = Math.max(limit, restore.itemCount);
 
     fetchResults(q || undefined, 0, limit)
       .then((data) => {
@@ -154,7 +154,12 @@ export const App = () => {
   useEffect(() => {
     const handler = () => {
       if (document.visibilityState === "visible") {
-        doSearch(lastQueryRef.current);
+        // Refetch everything already loaded so the list keeps its height and
+        // the grid can hold its scroll position.
+        doSearch(
+          lastQueryRef.current,
+          Math.max(PAGE_SIZE, resultsLenRef.current),
+        );
       }
     };
     document.addEventListener("visibilitychange", handler);
