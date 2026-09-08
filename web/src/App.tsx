@@ -21,6 +21,12 @@ const setScrollTop = (value: number) => {
   if (el) el.scrollTop = value;
 };
 
+const itemLabel = (item: SearchResult) => {
+  const label = item.meta.title || item.meta.note || item.link;
+  if (label) return label.length > 80 ? label.slice(0, 77) + "..." : label;
+  return `${item.meta.source} ${new Date(item.time).toISOString().slice(0, 10)}`;
+};
+
 interface SavedState {
   scrollTop: number;
   itemCount: number;
@@ -227,6 +233,16 @@ export const App = () => {
   }, []);
 
   const isDetail = parseQuery(query).detail !== null;
+
+  useEffect(() => {
+    if (isDetail) {
+      document.title = detailItem
+        ? `${itemLabel(detailItem)} - Archivist`
+        : "Archivist";
+    } else {
+      document.title = query ? `${query} - Archivist` : "Archivist";
+    }
+  }, [isDetail, detailItem, query]);
 
   return (
     <div className="app">
