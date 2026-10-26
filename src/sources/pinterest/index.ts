@@ -9,6 +9,7 @@ import { createLogger } from "../../logger";
 import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
 import { fetchWithDeadline, describeFetchError } from "../../http";
+import { assertDeletionSafe } from "../../validation";
 import {
   crawlBoards,
   crawlPinMetadata,
@@ -195,19 +196,22 @@ const pinterest: SourceDefinition<"pinterest"> = {
 
     const dbPins = db.prepare("SELECT * FROM pinterest").all() as PinDbRow[];
 
-    let recentPinIdsByBoard: Map<string, string[]> | undefined;
+    let knownPinIdsByBoard: Map<string, string[]> | undefined;
     if (config.appendOnly) {
       log.info("appendOnly mode, will stop at known pins");
-      recentPinIdsByBoard = new Map();
-      const recentPinsQuery = db.prepare(
-        "SELECT pinid FROM pinterest WHERE board = ? ORDER BY createdat DESC LIMIT 10",
+      knownPinIdsByBoard = new Map();
+      // BoardFeedResource paginates in board-save order, which can differ from
+      // original pin created_at when old pins sit at the top of a board.
+      // Passing every known pinid for the board stops at the first archived pin.
+      const boardPinsQuery = db.prepare(
+        "SELECT pinid FROM pinterest WHERE board = ?",
       );
       const boards = db
         .prepare("SELECT DISTINCT board FROM pinterest")
         .all() as { board: string }[];
       for (const { board } of boards) {
-        const pins = recentPinsQuery.all(board) as { pinid: string }[];
-        recentPinIdsByBoard.set(
+        const pins = boardPinsQuery.all(board) as { pinid: string }[];
+        knownPinIdsByBoard.set(
           board,
           pins.map((p) => p.pinid),
         );
@@ -220,7 +224,7 @@ const pinterest: SourceDefinition<"pinterest"> = {
         pins: crawledPins,
         failedBoards,
         totalBoards,
-      } = await crawlBoards(session, config, recentPinIdsByBoard);
+      } = await crawlBoards(session, config, knownPinIdsByBoard);
 
       // In appendOnly mode zero pins is the normal steady state, so this has to
       // be raised before it, or a wholly broken crawl reads as "nothing new".
@@ -260,6 +264,7 @@ const pinterest: SourceDefinition<"pinterest"> = {
         );
 
         if (removedPins.length > 0) {
+          assertDeletionSafe("pinterest", dbPins.length, removedPins.length);
           for (const pin of removedPins) {
             const filePath =
               pin.filename && path.join(ASSETS_PATH, pin.filename);
@@ -305,7 +310,7 @@ const pinterest: SourceDefinition<"pinterest"> = {
           board: pin.board,
           filename: pin.filename,
           title: pin.title,
-          text: pin.text || pin.alt,
+          text: pin.text ?? (pin.alt || undefined),
           link: pin.link,
           pinurl: pin.url,
           pinid,
@@ -330,18 +335,10 @@ const pinterest: SourceDefinition<"pinterest"> = {
   toSearchResult(row): SearchResult {
     const r = row as Record<string, any>;
     const thumbname = path.parse(r.filename).name + ".png";
-    const imgPath = path.join(ASSETS_PATH, r.filename);
-    const thumbPath = path.join(THUMBS_PATH, thumbname);
-
-    let thumbOk = false;
-    try {
-      const stat = fs.statSync(thumbPath);
-      thumbOk = stat.size > 0;
-    } catch {}
 
     return {
-      img: imgPath,
-      thumbImg: thumbOk ? thumbPath : imgPath,
+      img: path.join(ASSETS_PATH, r.filename),
+      thumbImg: path.join(THUMBS_PATH, thumbname),
       id: r.global_id,
       link: r.link || r.pinurl,
       time: r.createdat || r.crawldate,
