@@ -131,7 +131,7 @@ export const loadCached = (): VecIndex | null => {
         embedding.byteOffset,
         IMAGE_DIMS,
       );
-      const results = imgIndex.search(vec, k, 0);
+      const results = imgIndex.search(vec, k, 1);
       const ids: string[] = [];
       for (let i = 0; i < results.keys.length; i++) {
         ids.push(meta.image[Number(results.keys[i])]);
@@ -145,7 +145,7 @@ export const loadCached = (): VecIndex | null => {
         embedding.byteOffset,
         TEXT_DIMS,
       );
-      const results = txtIndex.search(vec, k, 0);
+      const results = txtIndex.search(vec, k, 1);
       const ids: string[] = [];
       for (let i = 0; i < results.keys.length; i++) {
         ids.push(meta.text[Number(results.keys[i])]);

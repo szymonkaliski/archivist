@@ -331,12 +331,10 @@ const screenshot: SourceDefinition<"screenshot"> = {
   toSearchResult(row): SearchResult {
     const r = row as Record<string, any>;
     const thumbname = path.parse(r.filename).name + ".png";
-    const thumbImg = path.join(THUMBS_PATH, thumbname);
-    const hasThumb = fs.existsSync(thumbImg);
 
     return {
       img: r.filepath,
-      thumbImg: hasThumb ? thumbImg : r.filepath,
+      thumbImg: path.join(THUMBS_PATH, thumbname),
       id: r.global_id,
       link: r.link || undefined,
       time: r.time,

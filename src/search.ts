@@ -14,12 +14,35 @@ const ALL_SOURCES: SourceKind[] = [
 
 const SOURCE_META: Record<
   SourceKind,
-  { table: string; fts: string; timeCol: string }
+  { table: string; fts: string; timeCol: string; selectCols: string }
 > = {
-  pinboard: { table: "pinboard", fts: "pinboard_fts", timeCol: "time" },
-  pinterest: { table: "pinterest", fts: "pinterest_fts", timeCol: "createdat" },
-  screenshot: { table: "screenshot", fts: "screenshot_fts", timeCol: "time" },
-  arena: { table: "arena", fts: "arena_fts", timeCol: "connected_at" },
+  pinboard: {
+    table: "pinboard",
+    fts: "pinboard_fts",
+    timeCol: "time",
+    // fulltext holds megabytes of frozen-page prose and is only used by the
+    // FTS5 trigger; omitting it here avoids faulting overflow pages on read.
+    selectCols:
+      "global_id, href, hash, meta, description, extended, tags, time, screenshot, frozen",
+  },
+  pinterest: {
+    table: "pinterest",
+    fts: "pinterest_fts",
+    timeCol: "createdat",
+    selectCols: "*",
+  },
+  screenshot: {
+    table: "screenshot",
+    fts: "screenshot_fts",
+    timeCol: "time",
+    selectCols: "*",
+  },
+  arena: {
+    table: "arena",
+    fts: "arena_fts",
+    timeCol: "connected_at",
+    selectCols: "*",
+  },
 };
 
 export interface SearchOptions {
@@ -115,10 +138,11 @@ const resolveRows = (
   const rowMap = new Map<string, SearchResult>();
   for (const [kind, ids] of idsBySource) {
     const source = SOURCES[kind];
+    const { selectCols } = SOURCE_META[kind];
     const placeholders = ids.map(() => "?").join(",");
     const rows = db
       .prepare(
-        `SELECT * FROM ${source.dataTable} WHERE global_id IN (${placeholders})`,
+        `SELECT ${selectCols} FROM ${source.dataTable} WHERE global_id IN (${placeholders})`,
       )
       .all(...ids) as Record<string, unknown>[];
 
@@ -138,14 +162,14 @@ const resolveRows = (
 // the total correct when an offset lands past the end and no rows come back.
 const runPagedQuery = (
   db: Database.Database,
-  cte: string,
+  unionSql: string,
   params: Record<string, any>,
   options: SearchOptions,
 ): { items: SearchResult[]; total: number } => {
+  // A bare compound UNION ALL lets SQLite merge-walk the per-table time indexes.
   const rows = db
     .prepare(
-      `WITH matched AS (${cte})
-       SELECT global_id FROM matched
+      `${unionSql}
        ORDER BY sort_time DESC
        LIMIT :limit OFFSET :offset`,
     )
@@ -156,7 +180,9 @@ const runPagedQuery = (
     }) as RankedRow[];
 
   const { total } = db
-    .prepare(`WITH matched AS (${cte}) SELECT COUNT(*) AS total FROM matched`)
+    .prepare(
+      `WITH matched AS (${unionSql}) SELECT COUNT(*) AS total FROM matched`,
+    )
     .get(params) as { total: number };
 
   return { items: resolveRows(db, rows), total };
@@ -201,31 +227,28 @@ export const search = (
   );
 };
 
-const findSimilarVec = (
+const findSimilarIds = (
   db: Database.Database,
   vecIndex: VecIndex,
   targetId: string,
   options: SearchOptions,
-): { items: SearchResult[]; total: number } => {
-  const imgEmb = db
-    .prepare("SELECT embedding FROM embeddings WHERE global_id = ?")
-    .get(targetId) as { embedding: Buffer } | undefined;
-  const txtEmb = db
-    .prepare("SELECT embedding FROM text_embeddings WHERE global_id = ?")
-    .get(targetId) as { embedding: Buffer } | undefined;
-  if (!imgEmb && !txtEmb) return { items: [], total: 0 };
+): { pageIds: string[]; total: number } => {
+  const embs = db
+    .prepare(
+      `SELECT
+         (SELECT embedding FROM embeddings WHERE global_id = :id) AS img,
+         (SELECT embedding FROM text_embeddings WHERE global_id = :id) AS txt`,
+    )
+    .get({ id: targetId }) as { img: Buffer | null; txt: Buffer | null };
+  if (!embs.img && !embs.txt) return { pageIds: [], total: 0 };
 
   const K = 500;
 
-  const imgResults = imgEmb
-    ? vecIndex
-        .searchImage(imgEmb.embedding, K + 1)
-        .filter((id) => id !== targetId)
+  const imgResults = embs.img
+    ? vecIndex.searchImage(embs.img, K + 1).filter((id) => id !== targetId)
     : [];
-  const txtResults = txtEmb
-    ? vecIndex
-        .searchText(txtEmb.embedding, K + 1)
-        .filter((id) => id !== targetId)
+  const txtResults = embs.txt
+    ? vecIndex.searchText(embs.txt, K + 1).filter((id) => id !== targetId)
     : [];
 
   const scores = new Map<string, number>();
@@ -255,7 +278,7 @@ const findSimilarVec = (
     const parts = activeSources
       .map((kind) => buildSourceFragment(kind, options, params, "browse"))
       .filter(Boolean);
-    if (parts.length === 0) return { items: [], total: 0 };
+    if (parts.length === 0) return { pageIds: [], total: 0 };
 
     const sql = parts.join(" UNION ALL ");
     const eligible = new Set(
@@ -267,15 +290,11 @@ const findSimilarVec = (
   }
 
   const total = ranked.length;
-  const page = ranked.slice(options.offset, options.offset + options.limit);
+  const pageIds = ranked
+    .slice(options.offset, options.offset + options.limit)
+    .map(([global_id]) => global_id);
 
-  return {
-    items: resolveRows(
-      db,
-      page.map(([global_id]) => ({ global_id })),
-    ),
-    total,
-  };
+  return { pageIds, total };
 };
 
 export const findSimilar = (
@@ -285,16 +304,18 @@ export const findSimilar = (
   options: SearchOptions,
 ): { item: SearchResult | null; items: SearchResult[]; total: number } => {
   const [sourcePrefix] = targetId.split(":");
-  const targetSource = SOURCES[sourcePrefix as SourceKind];
-  if (!targetSource) return { item: null, items: [], total: 0 };
+  if (!SOURCES[sourcePrefix as SourceKind]) {
+    return { item: null, items: [], total: 0 };
+  }
 
-  const targetRow = db
-    .prepare(`SELECT * FROM ${targetSource.dataTable} WHERE global_id = ?`)
-    .get(targetId) as Record<string, unknown> | undefined;
-  if (!targetRow) return { item: null, items: [], total: 0 };
+  const { pageIds, total } = findSimilarIds(db, vecIndex, targetId, options);
+  const resolved = resolveRows(
+    db,
+    [targetId, ...pageIds].map((global_id) => ({ global_id })),
+  );
+  if (resolved.length === 0 || resolved[0].id !== targetId) {
+    return { item: null, items: [], total: 0 };
+  }
 
-  const item = targetSource.toSearchResult(targetRow);
-  const result = findSimilarVec(db, vecIndex, targetId, options);
-
-  return { item, ...result };
+  return { item: resolved[0], items: resolved.slice(1), total };
 };
