@@ -13,6 +13,8 @@ import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
 import { withRetry } from "../../retry";
 import { fetchWithDeadline, describeFetchError } from "../../http";
+import { assertDeletionSafe, parseWithSchema } from "../../validation";
+import { z } from "zod";
 
 const log = createLogger("arena");
 
@@ -25,49 +27,89 @@ const PER_PAGE = 100;
 
 const globalId = (blockId: number): string => `arena:${blockId}`;
 
-interface ArenaImage {
-  src: string;
-  width: number;
-  height: number;
-  content_type: string;
-  filename: string;
-  file_size: number;
-}
+const ArenaRichTextSchema = z.object({
+  markdown: z.string().nullable().optional(),
+  html: z.string().nullable().optional(),
+  plain: z.string().nullable().optional(),
+});
 
-interface ArenaSource {
-  url: string;
-  title: string;
-  provider: { name: string; url: string };
-}
+export type ArenaRichText = z.infer<typeof ArenaRichTextSchema>;
 
-interface ArenaAttachment {
-  url: string;
-  content_type: string;
-  filename: string;
-}
+export const ArenaMeSchema = z.object({
+  slug: z.string().min(1),
+});
 
-interface ArenaRichText {
-  markdown?: string;
-  html?: string;
-  plain?: string;
-}
+export const ArenaChannelSchema = z.object({
+  id: z.number(),
+  type: z.literal("Channel"),
+  title: z.string(),
+  slug: z.string().min(1),
+  counts: z.object({
+    blocks: z.number(),
+    contents: z.number(),
+  }),
+});
 
-interface ArenaBlock {
-  id: number;
-  type: "Image" | "Text" | "Link" | "Media" | "Attachment";
-  base_type: "Block" | "Channel";
-  title: string | null;
-  description: string | ArenaRichText | null;
-  content: string | ArenaRichText | null;
-  created_at: string;
-  updated_at: string;
-  source: ArenaSource | null;
-  image: ArenaImage | null;
-  attachment: ArenaAttachment | null;
-  connection: {
-    connected_at: string;
-  };
-}
+export type ArenaChannel = z.infer<typeof ArenaChannelSchema>;
+
+export const ArenaBlockSchema = z.object({
+  id: z.number(),
+  type: z.enum(["Image", "Text", "Link", "Media", "Attachment"]),
+  base_type: z.literal("Block"),
+  title: z.string().nullable().optional(),
+  description: z.union([z.string(), ArenaRichTextSchema, z.null()]).optional(),
+  content: z.union([z.string(), ArenaRichTextSchema, z.null()]).optional(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+  source: z
+    .object({
+      url: z.string(),
+      title: z.string().nullable().optional(),
+      provider: z
+        .object({
+          name: z.string().nullable().optional(),
+          url: z.string().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
+  image: z
+    .object({
+      src: z.string().url(),
+      width: z.number().nullable().optional(),
+      height: z.number().nullable().optional(),
+      content_type: z.string().nullable().optional(),
+      filename: z.string().nullable().optional(),
+      file_size: z.number().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  attachment: z
+    .object({
+      url: z.string().url(),
+      content_type: z.string().nullable().optional(),
+      filename: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  connection: z
+    .object({
+      connected_at: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
+});
+
+export type ArenaBlock = z.infer<typeof ArenaBlockSchema>;
+
+export const ArenaContentsPageSchema = z.object({
+  data: z.array(z.record(z.string(), z.unknown())),
+  meta: z.object({
+    has_more_pages: z.boolean(),
+  }),
+});
 
 const richTextToPlain = (
   value: string | ArenaRichText | null | undefined,
@@ -76,13 +118,6 @@ const richTextToPlain = (
   if (typeof value === "string") return value || null;
   return value.plain || value.markdown || null;
 };
-
-interface ArenaChannel {
-  id: number;
-  title: string;
-  slug: string;
-  counts: { blocks: number; contents: number };
-}
 
 interface ArenaDbRow {
   global_id: string;
@@ -187,16 +222,25 @@ const fetchChannels = async (
   let page = 1;
 
   while (true) {
-    const data = await apiFetch(`/users/${userSlug}/contents`, token, {
+    const raw = await apiFetch(`/users/${userSlug}/contents`, token, {
       page,
       per: PER_PAGE,
     });
+    const data = parseWithSchema(
+      ArenaContentsPageSchema,
+      raw,
+      `arena /users/${userSlug}/contents`,
+    );
 
-    const items = data.data ?? [];
-    const channelItems = items.filter((item: any) => item.type === "Channel");
-    channels.push(...channelItems);
+    for (const item of data.data) {
+      if (item.type === "Channel") {
+        channels.push(
+          parseWithSchema(ArenaChannelSchema, item, "arena channel"),
+        );
+      }
+    }
 
-    if (!data.meta?.has_more_pages) break;
+    if (!data.meta.has_more_pages) break;
     page++;
   }
 
@@ -204,27 +248,45 @@ const fetchChannels = async (
 };
 
 const fetchChannelBlocks = async (
-  slug: string,
+  channel: ArenaChannel,
   token: string,
 ): Promise<ArenaBlock[]> => {
   const blocks: ArenaBlock[] = [];
   let page = 1;
+  let rawCount = 0;
 
   while (true) {
-    const data = await apiFetch(`/channels/${slug}/contents`, token, {
+    const raw = await apiFetch(`/channels/${channel.slug}/contents`, token, {
       page,
       per: PER_PAGE,
     });
+    const data = parseWithSchema(
+      ArenaContentsPageSchema,
+      raw,
+      `arena /channels/${channel.slug}/contents`,
+    );
 
-    const items = data.data ?? [];
-    for (const item of items) {
+    for (const item of data.data) {
+      rawCount++;
       if (item.base_type === "Block") {
-        blocks.push(item);
+        blocks.push(
+          parseWithSchema(
+            ArenaBlockSchema,
+            item,
+            `arena block in ${channel.slug}`,
+          ),
+        );
       }
     }
 
-    if (!data.meta?.has_more_pages) break;
+    if (!data.meta.has_more_pages) break;
     page++;
+  }
+
+  if (channel.counts.blocks > 0 && blocks.length === 0) {
+    throw new Error(
+      `arena channel "${channel.slug}" schema drifted: channel reports ${channel.counts.blocks} blocks (${rawCount} raw items returned) but 0 items matched base_type="Block"`,
+    );
   }
 
   return blocks;
@@ -464,11 +526,22 @@ const arena: SourceDefinition<"arena"> = {
     fs.mkdirSync(THUMBS_PATH, { recursive: true });
 
     // get user slug from userId
-    const me = await apiFetch("/me", config.accessToken);
-    const userSlug: string = me.slug;
+    const rawMe = await apiFetch("/me", config.accessToken);
+    const { slug: userSlug } = parseWithSchema(
+      ArenaMeSchema,
+      rawMe,
+      "arena /me",
+    );
 
     const channels = await fetchChannels(userSlug, config.accessToken);
     log.info(`found ${channels.length} channels`);
+
+    const dbRows = db.prepare("SELECT * FROM arena").all() as ArenaDbRow[];
+    if (dbRows.length > 0 && channels.length === 0) {
+      throw new Error(
+        `arena API returned 0 channels for user "${userSlug}" while ${dbRows.length} blocks exist in DB; aborting to prevent data loss`,
+      );
+    }
 
     // fetch all blocks with their channel membership
     const blockChannels = new Map<number, Set<string>>();
@@ -478,7 +551,7 @@ const arena: SourceDefinition<"arena"> = {
       log.info(
         `fetching channel: ${channel.title} (${channel.counts.contents} blocks)`,
       );
-      const blocks = await fetchChannelBlocks(channel.slug, config.accessToken);
+      const blocks = await fetchChannelBlocks(channel, config.accessToken);
 
       for (const block of blocks) {
         if (!blockChannels.has(block.id)) {
@@ -494,13 +567,13 @@ const arena: SourceDefinition<"arena"> = {
 
     log.info(`total unique blocks: ${blockData.size}`);
 
-    const dbRows = db.prepare("SELECT * FROM arena").all() as ArenaDbRow[];
     const existingIds = new Set(dbRows.map((r) => r.block_id));
     const crawledIds = new Set(blockData.keys());
 
     // remove blocks no longer in any channel
     const removedRows = dbRows.filter((r) => !crawledIds.has(r.block_id));
     if (removedRows.length > 0) {
+      assertDeletionSafe("arena", dbRows.length, removedRows.length);
       const remove = db.prepare("DELETE FROM arena WHERE block_id = ?");
       for (const row of removedRows) {
         if (row.filename) {
@@ -640,13 +713,7 @@ const arena: SourceDefinition<"arena"> = {
     if (hasImage) {
       img = path.join(ASSETS_PATH, r.filename);
       const thumbname = path.parse(r.filename).name + ".png";
-      const thumbPath = path.join(THUMBS_PATH, thumbname);
-      let thumbOk = false;
-      try {
-        const stat = fs.statSync(thumbPath);
-        thumbOk = stat.size > 0;
-      } catch {}
-      thumbImg = thumbOk ? thumbPath : img;
+      thumbImg = path.join(THUMBS_PATH, thumbname);
     }
 
     const link = r.source_url || `https://www.are.na/block/${r.block_id}`;
