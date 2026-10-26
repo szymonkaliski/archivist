@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import type Database from "better-sqlite3";
+import { z } from "zod";
 
 import { createLogger } from "../../logger";
 import {
@@ -13,6 +14,7 @@ import {
 import type { SourceDefinition, SearchResult } from "../../types";
 import { withRetry } from "../../retry";
 import { fetchWithDeadline, describeFetchError } from "../../http";
+import { assertDeletionSafe, formatZodError } from "../../validation";
 import { fetchLinks, type PinboardLink, type FetcherResult } from "./fetcher";
 
 const log = createLogger("pinboard");
@@ -49,6 +51,18 @@ export const redactToken = (message: string): string =>
 // to omit
 const stripBom = (body: string): string =>
   body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+
+export const PinboardLinkSchema = z.object({
+  href: z.string().min(1),
+  hash: z.string().min(1),
+  meta: z.string(),
+  description: z.string(),
+  extended: z.string(),
+  tags: z.string(),
+  time: z.string().min(1),
+});
+
+const PinboardPostsSchema = z.array(PinboardLinkSchema);
 
 const fetchAllPosts = async (apiKey: string): Promise<PinboardLink[]> => {
   const url = new URL(API_URL);
@@ -116,7 +130,15 @@ const fetchAllPosts = async (apiKey: string): Promise<PinboardLink[]> => {
         };
       }
 
-      return { kind: "done", value: parsed as PinboardLink[] };
+      const validated = PinboardPostsSchema.safeParse(parsed);
+      if (!validated.success) {
+        return {
+          kind: "fail",
+          reason: `pinboard posts/all schema drifted (${formatZodError(validated.error)})`,
+        };
+      }
+
+      return { kind: "done", value: validated.data };
     },
   );
 };
@@ -224,23 +246,26 @@ const pinboard: SourceDefinition<"pinboard"> = {
     );
 
     // process removed
-    for (const item of removedLinks) {
-      const screenshotPath =
-        item.screenshot && path.join(ASSETS_PATH, item.screenshot);
-      const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
-      if (screenshotPath && fs.existsSync(screenshotPath)) {
-        log.info(`unlinking ${screenshotPath}`);
-        fs.unlinkSync(screenshotPath);
+    if (removedLinks.length > 0) {
+      assertDeletionSafe("pinboard", dbLinks.length, removedLinks.length);
+      for (const item of removedLinks) {
+        const screenshotPath =
+          item.screenshot && path.join(ASSETS_PATH, item.screenshot);
+        const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
+        if (screenshotPath && fs.existsSync(screenshotPath)) {
+          log.info(`unlinking ${screenshotPath}`);
+          fs.unlinkSync(screenshotPath);
+        }
+        if (frozenPath && fs.existsSync(frozenPath)) {
+          log.info(`unlinking ${frozenPath}`);
+          fs.unlinkSync(frozenPath);
+        }
       }
-      if (frozenPath && fs.existsSync(frozenPath)) {
-        log.info(`unlinking ${frozenPath}`);
-        fs.unlinkSync(frozenPath);
-      }
-    }
 
-    db.transaction((hashes: string[]) => {
-      for (const hash of hashes) remove.run(hash);
-    })(removedLinks.map((l) => l.hash));
+      db.transaction((hashes: string[]) => {
+        for (const hash of hashes) remove.run(hash);
+      })(removedLinks.map((l) => l.hash));
+    }
 
     // fetch new
     const allFetched = (await fetchLinks(newLinks, config.concurrency)).filter(
