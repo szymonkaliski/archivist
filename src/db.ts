@@ -81,6 +81,7 @@ export const openDb = (): Database.Database => {
   ensureDirs();
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
+  db.pragma("recursive_triggers = ON");
   runMigrations(db);
   return db;
 };
