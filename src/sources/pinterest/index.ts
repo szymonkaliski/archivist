@@ -2,14 +2,13 @@ import fs from "fs";
 import md5 from "md5";
 import path from "path";
 import sharp from "sharp";
-import { imageSize } from "image-size";
 import type Database from "better-sqlite3";
 
 import { createLogger } from "../../logger";
-import { sourceAssetsDir, sourceThumbsDir } from "../../paths";
+import { sourceAssetsDir, sourceDir, sourceThumbsDir } from "../../paths";
 import type { SourceDefinition, SearchResult } from "../../types";
 import { fetchWithDeadline, describeFetchError } from "../../http";
-import { assertDeletionSafe } from "../../validation";
+import { assertDeletionSafe, selectUnreferencedFiles } from "../../validation";
 import {
   crawlBoards,
   crawlPinMetadata,
@@ -65,17 +64,16 @@ const download = async (
     throw new Error(`truncated download: ${buf.length}/${expected} bytes`);
   }
 
+  const meta = await sharp(buf).metadata();
+  if (!meta.width || !meta.height) {
+    throw new Error(`decoded image has no dimensions (${url})`);
+  }
+
   const filename = `${md5(buf)}${path.extname(url)}`;
   const finalPath = path.join(ASSETS_PATH, filename);
   fs.writeFileSync(finalPath, buf);
 
-  try {
-    const size = imageSize(new Uint8Array(buf));
-    return { filename, width: size.width || 0, height: size.height || 0 };
-  } catch (err) {
-    log.warn(`image-size error: ${err} (${finalPath})`);
-    return { filename, width: 0, height: 0 };
-  }
+  return { filename, width: meta.width, height: meta.height };
 };
 
 const fetchPins = async (
@@ -234,9 +232,8 @@ const pinterest: SourceDefinition<"pinterest"> = {
 
       if (crawledPins.length === 0) return null;
 
-      const DATA_DIR = path.dirname(ASSETS_PATH);
       fs.writeFileSync(
-        path.join(DATA_DIR, "crawled-pins.json"),
+        path.join(sourceDir("pinterest"), "crawled-pins.json"),
         JSON.stringify(crawledPins, null, 2),
         "utf-8",
       );
@@ -265,12 +262,26 @@ const pinterest: SourceDefinition<"pinterest"> = {
 
         if (removedPins.length > 0) {
           assertDeletionSafe("pinterest", dbPins.length, removedPins.length);
-          for (const pin of removedPins) {
-            const filePath =
-              pin.filename && path.join(ASSETS_PATH, pin.filename);
-            if (filePath && fs.existsSync(filePath)) {
+          const removedIds = new Set(removedPins.map((p) => p.pinid));
+          const keptFilenames = dbPins
+            .filter((p) => !removedIds.has(p.pinid))
+            .map((p) => p.filename);
+          const unreferenced = selectUnreferencedFiles(
+            removedPins.map((p) => p.filename),
+            keptFilenames,
+          );
+          for (const filename of unreferenced) {
+            const filePath = path.join(ASSETS_PATH, filename);
+            if (fs.existsSync(filePath)) {
               log.info(`unlinking ${filePath}`);
               fs.unlinkSync(filePath);
+            }
+            const thumbPath = path.join(
+              THUMBS_PATH,
+              path.parse(filename).name + ".png",
+            );
+            if (fs.existsSync(thumbPath)) {
+              fs.unlinkSync(thumbPath);
             }
           }
           db.transaction((pins: PinDbRow[]) => {
@@ -290,6 +301,7 @@ const pinterest: SourceDefinition<"pinterest"> = {
     });
 
     if (!crawled) {
+      await createThumbnails(db);
       log.warn("0 crawled pins, exiting");
       return;
     }
