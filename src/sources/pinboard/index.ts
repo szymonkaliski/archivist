@@ -14,7 +14,11 @@ import {
 import type { SourceDefinition, SearchResult } from "../../types";
 import { withRetry } from "../../retry";
 import { fetchWithDeadline, describeFetchError } from "../../http";
-import { assertDeletionSafe, formatZodError } from "../../validation";
+import {
+  assertDeletionSafe,
+  formatZodError,
+  selectUnreferencedFiles,
+} from "../../validation";
 import { fetchLinks, type PinboardLink, type FetcherResult } from "./fetcher";
 
 const log = createLogger("pinboard");
@@ -248,15 +252,34 @@ const pinboard: SourceDefinition<"pinboard"> = {
     // process removed
     if (removedLinks.length > 0) {
       assertDeletionSafe("pinboard", dbLinks.length, removedLinks.length);
-      for (const item of removedLinks) {
-        const screenshotPath =
-          item.screenshot && path.join(ASSETS_PATH, item.screenshot);
-        const frozenPath = item.frozen && path.join(FROZEN_PATH, item.frozen);
-        if (screenshotPath && fs.existsSync(screenshotPath)) {
+      const removedHashes = new Set(removedLinks.map((l) => l.hash));
+      const keptLinks = dbLinks.filter((l) => !removedHashes.has(l.hash));
+      const unreferencedScreenshots = selectUnreferencedFiles(
+        removedLinks.map((l) => l.screenshot),
+        keptLinks.map((l) => l.screenshot),
+      );
+      const unreferencedFrozen = selectUnreferencedFiles(
+        removedLinks.map((l) => l.frozen),
+        keptLinks.map((l) => l.frozen),
+      );
+
+      for (const screenshot of unreferencedScreenshots) {
+        const screenshotPath = path.join(ASSETS_PATH, screenshot);
+        if (fs.existsSync(screenshotPath)) {
           log.info(`unlinking ${screenshotPath}`);
           fs.unlinkSync(screenshotPath);
         }
-        if (frozenPath && fs.existsSync(frozenPath)) {
+        const thumbPath = path.join(
+          THUMBS_PATH,
+          path.parse(screenshot).name + ".png",
+        );
+        if (fs.existsSync(thumbPath)) {
+          fs.unlinkSync(thumbPath);
+        }
+      }
+      for (const frozen of unreferencedFrozen) {
+        const frozenPath = path.join(FROZEN_PATH, frozen);
+        if (fs.existsSync(frozenPath)) {
           log.info(`unlinking ${frozenPath}`);
           fs.unlinkSync(frozenPath);
         }
