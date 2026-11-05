@@ -3,7 +3,6 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import sharp from "sharp";
-import { imageSize } from "image-size";
 import type Database from "better-sqlite3";
 
 const execFileAsync = promisify(execFile);
@@ -323,25 +322,39 @@ const downloadImage = async (
           };
         }
 
+        let width: number;
+        let height: number;
+        try {
+          const meta = await sharp(buf).metadata();
+          if (!meta.width || !meta.height) {
+            return {
+              kind: "retry",
+              reason: "decoded image has no dimensions",
+            };
+          }
+          width = meta.width;
+          height = meta.height;
+        } catch (e: any) {
+          return {
+            kind: "retry",
+            reason: `invalid image data: ${e?.message ?? String(e)}`,
+          };
+        }
+
         const ext = path.extname(new URL(url).pathname).split("?")[0] || ".jpg";
         const filename = `${blockId}${ext}`;
         const dest = path.join(ASSETS_PATH, filename);
 
         fs.writeFileSync(dest, buf);
 
-        try {
-          const size = imageSize(new Uint8Array(buf));
-          return {
-            kind: "done",
-            value: {
-              filename,
-              width: size.width || 0,
-              height: size.height || 0,
-            },
-          };
-        } catch {
-          return { kind: "done", value: { filename, width: 0, height: 0 } };
-        }
+        return {
+          kind: "done",
+          value: {
+            filename,
+            width,
+            height,
+          },
+        };
       },
     );
   } catch (e: any) {
@@ -428,11 +441,11 @@ const downloadAttachmentAsGif = async (
     fs.unlinkSync(palettePath);
 
     try {
-      const size = imageSize(new Uint8Array(fs.readFileSync(gifPath)));
+      const meta = await sharp(gifPath).metadata();
       return {
         filename: gifFilename,
-        width: size.width || 0,
-        height: size.height || 0,
+        width: meta.width || 0,
+        height: meta.height || 0,
       };
     } catch {
       return { filename: gifFilename, width: 0, height: 0 };
@@ -599,7 +612,12 @@ const arena: SourceDefinition<"arena"> = {
     // that should carry an asset but have none are retried on later runs
     // instead of staying imageless for good.
     const missingAsset = new Set(
-      dbRows.filter((r) => !r.filename).map((r) => r.block_id),
+      dbRows
+        .filter(
+          (r) =>
+            !r.filename || !fs.existsSync(path.join(ASSETS_PATH, r.filename)),
+        )
+        .map((r) => r.block_id),
     );
     const expectsAsset = (block: ArenaBlock): boolean =>
       !!block.image?.src ||
@@ -655,6 +673,8 @@ const arena: SourceDefinition<"arena"> = {
           filename = downloaded.filename;
           width = downloaded.width;
           height = downloaded.height;
+        } else if (existingIds.has(blockId)) {
+          continue;
         }
 
         results.push({
