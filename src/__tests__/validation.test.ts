@@ -5,6 +5,7 @@ import {
   checkDeletionSafe,
   nonEmptyString,
   parseWithSchema,
+  selectUnreferencedFiles,
   verifyPageSelectors,
 } from "../validation";
 import {
@@ -90,6 +91,22 @@ describe("checkDeletionSafe / assertDeletionSafe", () => {
     expect(() => assertDeletionSafe("pinboard", 2073, 500)).toThrow(
       /pinboard crawl would delete 500\/2073 items/,
     );
+  });
+});
+
+describe("selectUnreferencedFiles", () => {
+  it("keeps files still referenced by remaining rows and deduplicates unreferenced files", () => {
+    const removed = [
+      "shared.jpg",
+      "only-removed.png",
+      "only-removed.png",
+      null,
+      "",
+    ];
+    const kept = ["shared.jpg", "other.jpg", undefined];
+    expect(selectUnreferencedFiles(removed, kept)).toEqual([
+      "only-removed.png",
+    ]);
   });
 });
 

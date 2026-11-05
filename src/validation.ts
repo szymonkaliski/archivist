@@ -123,3 +123,18 @@ export const assertDeletionSafe = (
     throw new Error(check.reason);
   }
 };
+
+export const selectUnreferencedFiles = (
+  removedFiles: Iterable<string | null | undefined>,
+  keptFiles: Iterable<string | null | undefined>,
+): string[] => {
+  const kept = new Set<string>();
+  for (const f of keptFiles) {
+    if (f) kept.add(f);
+  }
+  const unreferenced = new Set<string>();
+  for (const f of removedFiles) {
+    if (f && !kept.has(f)) unreferenced.add(f);
+  }
+  return [...unreferenced];
+};
