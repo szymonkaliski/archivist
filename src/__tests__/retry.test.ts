@@ -12,12 +12,10 @@ const config = (attempts: number) => ({
 
 describe("withRetry", () => {
   it("returns the value without retrying when the first attempt succeeds", async () => {
-    const run = vi.fn(
-      async (): Promise<Attempt<number>> => ({
-        kind: "done",
-        value: 1,
-      }),
-    );
+    const run = vi.fn(async (): Promise<Attempt<number>> => ({
+      kind: "done",
+      value: 1,
+    }));
 
     await expect(withRetry(config(3), run)).resolves.toBe(1);
     expect(run).toHaveBeenCalledTimes(1);

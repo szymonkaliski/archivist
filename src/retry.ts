@@ -24,8 +24,7 @@ export interface RetryConfig {
 }
 
 type Failure =
-  | { kind: "thrown"; error: unknown }
-  | { kind: "returned"; reason: string };
+  { kind: "thrown"; error: unknown } | { kind: "returned"; reason: string };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
