@@ -230,8 +230,7 @@ export const extractPinMetadata = (p: PinterestPinDetail): PinMetadata => {
 };
 
 type RawPinPageEval =
-  | { status: "ok"; rawPin: unknown }
-  | { status: "drifted"; reason: string };
+  { status: "ok"; rawPin: unknown } | { status: "drifted"; reason: string };
 
 export const crawlPin = async (
   browser: any,
@@ -348,11 +347,11 @@ type BoardFeedPaginateResult =
 
 // Paginate a board's BoardFeedResource by replaying the page's own feed request
 // (valid session/CSRF headers). The first page is forced by stripping any captured
-// `bookmarks`; subsequent pages follow `bookmark` until it's absent (end-of-feed).
+// `bookmarks`; subsequent pages follow `bookmark` until it's absent or "-end-".
 // This feed contains ONLY pins saved to the board - Pinterest serves "More ideas"
 // recommendations from a separate endpoint - so there is nothing to scrape or
 // boundary-detect, and it is independent of UI text/locale.
-const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
+export const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
   var known = new Set(knownIds || []);
   var seen = {};
   var rawPins = [];
@@ -375,10 +374,7 @@ const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
     u.searchParams.set("_", String(Date.now()));
     var r = await fetch(u.toString(), { headers: headers, credentials: "include", signal: AbortSignal.timeout(${FEED_REQUEST_TIMEOUT}) });
     if (!r.ok) {
-      if (pages === 0) {
-        return { kind: "http_error", status: r.status };
-      }
-      break;
+      return { kind: "http_error", status: r.status };
     }
     var j = await r.json();
     var rr = j && j.resource_response;
@@ -412,9 +408,11 @@ const PIN_PAGINATE = `(async (firstUrl, headers, knownIds) => {
     }
     pages++;
     if (stop) break;
+    if (arr.length === 0) break;
     if (!("bookmark" in rr)) break;
-    bookmark = rr.bookmark;
-    if (!bookmark) break;
+    var nextBookmark = rr.bookmark;
+    if (!nextBookmark || nextBookmark === "-end-" || nextBookmark === bookmark) break;
+    bookmark = nextBookmark;
     if (pages > 300) break;
     await new Promise(function (res) { setTimeout(res, 120); });
   }
@@ -479,6 +477,38 @@ export const validateBoardFeedResult = (
   return pins;
 };
 
+const safeDecodeURIComponent = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const normalizeBoardPath = (value: string): string =>
+  safeDecodeURIComponent(value).replace(/\/+$/, "").toLowerCase();
+
+export const matchesBoardFeedUrl = (
+  u: string,
+  profile: string,
+  boardName: string,
+): boolean => {
+  if (!/\/resource\/BoardFeedResource\/get\//.test(u)) return false;
+
+  const expected = normalizeBoardPath(`/${profile}/${boardName}`);
+  try {
+    const parsed = new URL(u);
+    const sourceUrl = parsed.searchParams.get("source_url");
+    if (sourceUrl) {
+      return normalizeBoardPath(sourceUrl.split(/[?#]/)[0]) === expected;
+    }
+  } catch {
+    return false;
+  }
+
+  return normalizeBoardPath(safeDecodeURIComponent(u)).includes(`${expected}/`);
+};
+
 const crawlBoardOnce = async (
   browser: any,
   boardUrl: string,
@@ -493,13 +523,7 @@ const crawlBoardOnce = async (
     // require the captured feed request to belong to THIS board (its source_url
     // carries the board path) so we never replay a neighbouring board's request
     const waitFirst = page.waitForResponse(
-      (r: any) => {
-        const u = r.url();
-        return (
-          /\/resource\/BoardFeedResource\/get\//.test(u) &&
-          decodeURIComponent(u).includes(`/${profile}/${boardName}/`)
-        );
-      },
+      (r: any) => matchesBoardFeedUrl(r.url(), profile, boardName),
       { timeout: BOARD_FEED_TIMEOUT },
     );
 
