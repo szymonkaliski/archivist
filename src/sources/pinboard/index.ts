@@ -309,8 +309,8 @@ const pinboard: SourceDefinition<"pinboard"> = {
         extended: r.link.extended,
         tags: r.link.tags,
         time: r.link.time,
-        screenshot: r.paths.screenshot,
-        frozen: r.paths.frozen,
+        screenshot: r.paths.screenshot ?? null,
+        frozen: r.paths.frozen ?? null,
         fulltext: r.fulltext,
       }));
 
@@ -333,6 +333,10 @@ const pinboard: SourceDefinition<"pinboard"> = {
         fulltext: "",
       }));
 
+    const transientCount = allFetched.filter(
+      (r) => r.kind === "transient_failed",
+    ).length;
+
     db.transaction((links: any[]) => {
       for (const link of links) insert.run(link);
     })(savedLinks);
@@ -344,6 +348,12 @@ const pinboard: SourceDefinition<"pinboard"> = {
     if (failedLinks.length > 0) {
       log.warn(
         `marked ${failedLinks.length} links as permanently failed (offline, no archive found)`,
+      );
+    }
+
+    if (transientCount > 0) {
+      log.warn(
+        `deferred ${transientCount} links after transient or archive-lookup failures (will retry next run)`,
       );
     }
 

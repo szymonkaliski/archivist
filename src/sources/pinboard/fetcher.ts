@@ -66,23 +66,24 @@ export interface PinboardLink {
 
 export type FetcherResult =
   | { kind: "saved"; link: PinboardLink; fulltext: string; paths: SavedPaths }
-  | { kind: "permanently_failed"; link: PinboardLink };
+  | { kind: "permanently_failed"; link: PinboardLink }
+  | { kind: "transient_failed"; link: PinboardLink };
 
 type CaptureOutcome =
   | { kind: "captured"; paths: SavedPaths }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  | { kind: "transient_failed" };
 
 // Whether an archive HAS the page is only knowable when the archive actually
 // answered. Its lookup endpoint fails often enough that conflating "answered,
 // nothing here" with "could not ask" would write off recoverable links.
 type ArchiveLookup =
-  | { kind: "found"; url: string }
-  | { kind: "none" }
-  | { kind: "unavailable" };
+  { kind: "found"; url: string } | { kind: "none" } | { kind: "unavailable" };
 
 type SavePageResult =
   | { kind: "saved"; paths: SavedPaths }
-  | { kind: "permanently_failed" };
+  | { kind: "permanently_failed" }
+  | { kind: "transient_failed" };
 
 type FreezeResult =
   | { kind: "frozen" }
@@ -170,7 +171,7 @@ const originKeyFor = (url: string): string => {
 // it: a squatter running a real CMS still answers 404 for nonsense paths, so
 // the origin looks honest while every old article silently becomes the new
 // homepage. Storing that homepage is not the capture that was asked for.
-const redirectedToRoot = (requested: string, final: string): boolean => {
+export const redirectedToRoot = (requested: string, final: string): boolean => {
   let from: URL;
   let to: URL;
   try {
@@ -186,7 +187,11 @@ const redirectedToRoot = (requested: string, final: string): boolean => {
   if (asked.length <= 1) return false;
   if (/^\/(index|home|default)\.\w+$/i.test(asked)) return false;
 
-  return to.pathname.replace(/\/+$/, "") === "" && !from.search;
+  return (
+    to.pathname.replace(/\/+$/, "") === "" &&
+    !to.search &&
+    to.hash.replace(/^#/, "") === ""
+  );
 };
 
 const ARCHIVE_HOSTS = /(^|\.)(archive\.org|archive\.today)$/;
@@ -378,7 +383,7 @@ const freezePage = async (
   }
 };
 
-const captureOnce = async (
+export const captureOnce = async (
   browser: Browser,
   link: string,
   screenshotPath: string,
@@ -484,6 +489,11 @@ const captureOnce = async (
 
   await page.close().catch(() => {});
 
+  if (!didScreenshot && !didFreeze) {
+    log.warn("both screenshot and freeze failed for %s", link);
+    return { kind: "done", value: { kind: "failed" } };
+  }
+
   return {
     kind: "done",
     value: {
@@ -529,9 +539,9 @@ const savePageInternal = async (
       () => captureOnce(browser, link, screenshotPath, frozenPath, probeFor),
     );
   } catch {
-    // attempts spent on a transient status; the caller still gets to try the
-    // archives before the link is given up on
-    return { kind: "failed" };
+    // attempts spent on a transient status; the caller still tries the archives
+    // and defers the link to a later run if they do not have it
+    return { kind: "transient_failed" };
   }
 };
 
@@ -619,7 +629,22 @@ const tryWayback = async (link: string): Promise<ArchiveLookup> => {
 // for the rest of the run; a single success clears it.
 let archiveTodayFailures = 0;
 
-const tryArchiveToday = async (link: string): Promise<ArchiveLookup> => {
+const recordArchiveTodayFailure = (
+  link: string,
+  detail: string,
+): ArchiveLookup => {
+  archiveTodayFailures++;
+  if (archiveTodayFailures === ARCHIVE_GIVE_UP_AFTER) {
+    log.warn(
+      "archive.today failed %d times in a row, skipping it for this run",
+      archiveTodayFailures,
+    );
+  }
+  log.warn("archive.today unavailable for %s: %s", link, detail);
+  return { kind: "unavailable" };
+};
+
+export const tryArchiveToday = async (link: string): Promise<ArchiveLookup> => {
   if (archiveTodayFailures >= ARCHIVE_GIVE_UP_AFTER) {
     return { kind: "unavailable" };
   }
@@ -636,6 +661,9 @@ const tryArchiveToday = async (link: string): Promise<ArchiveLookup> => {
         },
       },
     );
+    if (isTransientStatus(res.status)) {
+      return recordArchiveTodayFailure(link, `HTTP ${res.status}`);
+    }
     archiveTodayFailures = 0;
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
@@ -647,26 +675,22 @@ const tryArchiveToday = async (link: string): Promise<ArchiveLookup> => {
     log.warn("couldn't find archive.today for: %s", link);
     return { kind: "none" };
   } catch (e: any) {
-    archiveTodayFailures++;
-    if (archiveTodayFailures === ARCHIVE_GIVE_UP_AFTER) {
-      log.warn(
-        "archive.today failed %d times in a row, skipping it for this run",
-        archiveTodayFailures,
-      );
-    }
-    log.error("archive.today lookup failed for: %s %s", link, e.toString());
+    return recordArchiveTodayFailure(link, e.toString());
   }
-  return { kind: "unavailable" };
 };
 
-const savePage = async (
+export const savePage = async (
   browser: Browser,
   link: string,
   probeFor: OriginProbe,
 ): Promise<SavePageResult> => {
   const isOnline = await isReachable(link);
 
-  const tryArchives = async (): Promise<SavePageResult> => {
+  const tryArchives = async (
+    liveTransient: boolean,
+  ): Promise<SavePageResult> => {
+    let transient = liveTransient;
+
     const wayback = await tryWayback(link);
     if (wayback.kind === "found") {
       const outcome = await savePageInternal(
@@ -678,6 +702,9 @@ const savePage = async (
       if (outcome.kind === "captured") {
         return { kind: "saved", paths: outcome.paths };
       }
+      if (outcome.kind === "transient_failed") transient = true;
+    } else if (wayback.kind === "unavailable") {
+      transient = true;
     }
 
     const today = await tryArchiveToday(link);
@@ -691,14 +718,19 @@ const savePage = async (
       if (outcome.kind === "captured") {
         return { kind: "saved", paths: outcome.paths };
       }
+      if (outcome.kind === "transient_failed") transient = true;
+    } else if (today.kind === "unavailable") {
+      transient = true;
     }
 
-    return { kind: "permanently_failed" };
+    return transient
+      ? { kind: "transient_failed" }
+      : { kind: "permanently_failed" };
   };
 
   if (!isOnline) {
     log.info("offline, trying archives for: %s", link);
-    return tryArchives();
+    return tryArchives(false);
   }
 
   const outcome = await savePageInternal(browser, link, link, probeFor);
@@ -707,7 +739,7 @@ const savePage = async (
   }
 
   log.info("no usable live capture, trying archives for: %s", link);
-  return tryArchives();
+  return tryArchives(outcome.kind === "transient_failed");
 };
 
 const getFulltext = async (frozenPath: string): Promise<string> => {
@@ -737,6 +769,9 @@ export const fetchLinks = async (
   concurrency = 10,
   extractFulltext = true,
 ): Promise<(FetcherResult | null)[]> => {
+  waybackFailures = 0;
+  archiveTodayFailures = 0;
+
   const browser = await puppeteer.launch({
     headless: true,
     acceptInsecureCerts: true,
@@ -756,6 +791,8 @@ export const fetchLinks = async (
           const result = await savePage(browser, link.href, probeFor);
           if (result.kind === "permanently_failed") {
             results.push({ kind: "permanently_failed", link });
+          } else if (result.kind === "transient_failed") {
+            results.push({ kind: "transient_failed", link });
           } else {
             const fulltext =
               extractFulltext && result.paths.frozen
