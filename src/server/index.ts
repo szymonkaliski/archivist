@@ -3,17 +3,38 @@ import fs from "fs";
 import path from "path";
 
 import { createLogger } from "../logger";
+import { CONFIG_FILE, loadConfig } from "../config";
 import { openDb } from "../db";
-import { search, findSimilar } from "../search";
+import { sourceAssetsDir, sourceFrozenDir, sourceThumbsDir } from "../paths";
+import { search, findSimilar, warmSearchIndex } from "../search";
 import type { SourceKind } from "../types";
 import { SOURCES } from "../sources/registry";
 import { loadCached } from "../vec-index";
+import {
+  IMAGE_MIME_TYPES,
+  buildAllowedRoots,
+  resolveServedFile,
+  type AllowedRoots,
+} from "./files";
 
 const log = createLogger("server");
 const app = express();
+app.set("etag", false);
 const PORT = parseInt(process.env.PORT || "3000");
 
 const db = openDb();
+warmSearchIndex(db);
+
+const config = fs.existsSync(CONFIG_FILE) ? loadConfig() : {};
+const sourceKinds = Object.keys(SOURCES) as SourceKind[];
+const IMAGE_ROOTS = buildAllowedRoots([
+  ...sourceKinds.flatMap((k) => [sourceAssetsDir(k), sourceThumbsDir(k)]),
+  ...(config.screenshot?.directory ? [config.screenshot.directory] : []),
+]);
+const HTML_ROOTS = buildAllowedRoots([sourceFrozenDir("pinboard")]);
+const HTML_MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+};
 
 const encodePath = (filePath: string): string =>
   Buffer.from(filePath).toString("base64url");
@@ -143,53 +164,47 @@ app.get("/api/search", (req, res) => {
   }
 });
 
-app.get("/img/:encoded", (req, res) => {
-  const decoded = decodePath(req.params.encoded);
-  const resolved = path.resolve(decoded);
-
-  if (!path.isAbsolute(resolved) || resolved !== decoded) {
+const serveEncodedFile = (
+  encoded: string,
+  allowedRoots: AllowedRoots,
+  mimeByExt: Record<string, string>,
+  res: express.Response,
+): void => {
+  const result = resolveServedFile(
+    decodePath(encoded),
+    allowedRoots,
+    mimeByExt,
+  );
+  if (result.kind === "invalid") {
     res.status(400).json({ error: "invalid path" });
     return;
   }
-  if (!fs.existsSync(resolved)) {
+  if (result.kind === "forbidden") {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  if (result.kind === "not_found") {
     res.status(404).json({ error: "not found" });
     return;
   }
 
-  const ext = path.extname(resolved).toLowerCase();
-  const mimeTypes: Record<string, string> = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-  };
-
-  res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+  res.setHeader("Content-Type", result.contentType);
   res.setHeader("Cache-Control", "public, max-age=604800, immutable");
-  fs.createReadStream(resolved).pipe(res);
+  const stream = fs.createReadStream(result.filePath);
+  stream.on("error", (err) => {
+    log.error(err, "failed to stream %s", result.filePath);
+    if (!res.headersSent) res.status(500).json({ error: "read failed" });
+    else res.destroy();
+  });
+  stream.pipe(res);
+};
+
+app.get("/img/:encoded", (req, res) => {
+  serveEncodedFile(req.params.encoded, IMAGE_ROOTS, IMAGE_MIME_TYPES, res);
 });
 
 app.get("/html/:encoded", (req, res) => {
-  const decoded = decodePath(req.params.encoded);
-  const resolved = path.resolve(decoded);
-
-  if (!path.isAbsolute(resolved) || resolved !== decoded) {
-    res.status(400).json({ error: "invalid path" });
-    return;
-  }
-  if (path.extname(resolved).toLowerCase() !== ".html") {
-    res.status(400).json({ error: "invalid file type" });
-    return;
-  }
-  if (!fs.existsSync(resolved)) {
-    res.status(404).json({ error: "not found" });
-    return;
-  }
-
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=604800, immutable");
-  fs.createReadStream(resolved).pipe(res);
+  serveEncodedFile(req.params.encoded, HTML_ROOTS, HTML_MIME_TYPES, res);
 });
 
 const DIST = path.join(import.meta.dirname, "../../web/dist");
@@ -200,6 +215,8 @@ app.get("/{*path}", (_req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   log.info(`listening on http://localhost:${PORT}`);
 });
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
