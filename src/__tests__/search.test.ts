@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import Database from "better-sqlite3";
-import { search, findSimilar } from "../search";
+import type Database from "better-sqlite3";
+import { openDb } from "../db";
+import { search, findSimilar, warmSearchIndex } from "../search";
 import { loadCached, type VecIndex } from "../vec-index";
 
-// e2e tests against the real DB -- assumes data has been migrated
-const DB_PATH = process.env.HOME + "/.local/share/archivist/data.db";
-
+// e2e tests against the real DB
 let db: Database.Database;
 let vecIndex: VecIndex;
 
 beforeAll(() => {
-  db = new Database(DB_PATH, { readonly: true });
+  db = openDb(undefined, { readonly: true });
+  warmSearchIndex(db);
   const idx = loadCached();
   if (!idx) throw new Error("vec index not found, run fetch first");
   vecIndex = idx;
@@ -327,6 +327,15 @@ describe("performance", () => {
       search(db, { text: "geoffrey", limit: 400, offset: 0 }),
     );
     expect(ms).toBeLessThan(16);
+  });
+
+  it("broad and 1-char prefix text search < 16ms", () => {
+    for (const text of ["design", "design system", "the", "ar", "a"]) {
+      const [, ms20] = time(() => search(db, { text, limit: 20, offset: 0 }));
+      expect(ms20).toBeLessThan(16);
+      const [, ms400] = time(() => search(db, { text, limit: 400, offset: 0 }));
+      expect(ms400).toBeLessThan(16);
+    }
   });
 
   it("findSimilar < 16ms", () => {

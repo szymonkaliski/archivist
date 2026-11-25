@@ -498,39 +498,32 @@ const createThumbnails = async (db: Database.Database) => {
 const arena: SourceDefinition<"arena"> = {
   kind: "arena",
 
-  setupStatements: [
-    `CREATE TABLE IF NOT EXISTS arena (
-      global_id TEXT PRIMARY KEY,
-      block_id INTEGER NOT NULL UNIQUE,
-      title TEXT,
-      description TEXT,
-      content TEXT,
-      source_url TEXT,
-      block_class TEXT NOT NULL,
-      connected_at DATETIME,
-      channels TEXT,
-      filename TEXT,
-      width INTEGER DEFAULT 0,
-      height INTEGER DEFAULT 0
-    )`,
-    `CREATE VIRTUAL TABLE IF NOT EXISTS arena_fts
-     USING FTS5(global_id, title, description, content, source_url, channels)`,
-    `CREATE TRIGGER IF NOT EXISTS arena_fts_insert AFTER INSERT ON arena BEGIN
-      INSERT INTO arena_fts(global_id, title, description, content, source_url, channels)
-      VALUES (new.global_id, new.title, new.description, new.content, new.source_url, new.channels);
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS arena_fts_delete AFTER DELETE ON arena BEGIN
-      DELETE FROM arena_fts WHERE global_id = old.global_id;
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS arena_fts_update AFTER UPDATE ON arena BEGIN
-      DELETE FROM arena_fts WHERE global_id = old.global_id;
-      INSERT INTO arena_fts(global_id, title, description, content, source_url, channels)
-      VALUES (new.global_id, new.title, new.description, new.content, new.source_url, new.channels);
-    END`,
-  ],
-
-  ftsTable: "arena_fts",
   dataTable: "arena",
+  ftsTable: "arena_fts",
+  tableSql: `CREATE TABLE IF NOT EXISTS arena (
+    global_id TEXT PRIMARY KEY,
+    block_id INTEGER NOT NULL UNIQUE,
+    title TEXT,
+    description TEXT,
+    content TEXT,
+    source_url TEXT,
+    block_class TEXT NOT NULL,
+    connected_at DATETIME,
+    channels TEXT,
+    filename TEXT,
+    width INTEGER DEFAULT 0,
+    height INTEGER DEFAULT 0
+  )`,
+  timeColumn: "connected_at",
+  ftsColumns: [
+    "global_id",
+    "title",
+    "description",
+    "content",
+    "source_url",
+    "channels",
+  ],
+  tagSpec: { kind: "delimited", column: "channels", delimiter: "\t" },
 
   async fetch(db, config) {
     if (!config.accessToken) throw new Error("accessToken not provided");

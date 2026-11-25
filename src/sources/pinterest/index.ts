@@ -150,34 +150,25 @@ interface PinDbRow {
 const pinterest: SourceDefinition<"pinterest"> = {
   kind: "pinterest",
 
-  setupStatements: [
-    `CREATE TABLE IF NOT EXISTS pinterest (
-      global_id TEXT PRIMARY KEY,
-      board TEXT,
-      filename TEXT,
-      title TEXT,
-      text TEXT,
-      link TEXT,
-      pinurl TEXT,
-      pinid TEXT NOT NULL UNIQUE,
-      crawldate DATETIME,
-      createdat DATETIME,
-      width INTEGER,
-      height INTEGER
-    )`,
-    `CREATE VIRTUAL TABLE IF NOT EXISTS pinterest_fts
-     USING FTS5(global_id, board, link, title, text)`,
-    `CREATE TRIGGER IF NOT EXISTS pinterest_fts_insert AFTER INSERT ON pinterest BEGIN
-      INSERT INTO pinterest_fts(global_id, board, link, title, text)
-      VALUES (new.global_id, new.board, new.link, new.title, new.text);
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS pinterest_fts_delete AFTER DELETE ON pinterest BEGIN
-      DELETE FROM pinterest_fts WHERE global_id = old.global_id;
-    END`,
-  ],
-
-  ftsTable: "pinterest_fts",
   dataTable: "pinterest",
+  ftsTable: "pinterest_fts",
+  tableSql: `CREATE TABLE IF NOT EXISTS pinterest (
+    global_id TEXT PRIMARY KEY,
+    board TEXT,
+    filename TEXT,
+    title TEXT,
+    text TEXT,
+    link TEXT,
+    pinurl TEXT,
+    pinid TEXT NOT NULL UNIQUE,
+    crawldate DATETIME,
+    createdat DATETIME,
+    width INTEGER,
+    height INTEGER
+  )`,
+  timeColumn: "createdat",
+  ftsColumns: ["global_id", "board", "link", "title", "text"],
+  tagSpec: { kind: "exact", column: "board" },
 
   async fetch(db, config) {
     fs.mkdirSync(ASSETS_PATH, { recursive: true });

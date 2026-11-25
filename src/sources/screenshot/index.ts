@@ -168,19 +168,8 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
 
   if (removedFiles.length > 0) {
     const remove = db.prepare("DELETE FROM screenshot WHERE filepath = ?");
-    const removeFt = db.prepare(
-      "DELETE FROM screenshot_fts WHERE global_id = ?",
-    );
     db.transaction((files: string[]) => {
-      for (const f of files) {
-        const row = db
-          .prepare("SELECT global_id FROM screenshot WHERE filepath = ?")
-          .get(f) as { global_id: string } | undefined;
-        if (row) {
-          removeFt.run(row.global_id);
-          remove.run(f);
-        }
-      }
+      for (const f of files) remove.run(f);
     })(removedFiles);
   }
 
@@ -214,13 +203,12 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
   // resolves, so the attempt counter bounds how long a row is re-read.
   const pending = db
     .prepare(
-      `SELECT global_id, filepath, filename FROM screenshot
+      `SELECT global_id, filepath FROM screenshot
        WHERE note IS NULL AND xattr_attempts < ?`,
     )
     .all(MAX_XATTR_ATTEMPTS) as {
     global_id: string;
     filepath: string;
-    filename: string;
   }[];
 
   if (pending.length > 0) {
@@ -230,34 +218,22 @@ const populateDb = async (db: Database.Database, config: ScreenshotConfig) => {
     const bumpAttempt = db.prepare(
       "UPDATE screenshot SET xattr_attempts = xattr_attempts + 1 WHERE global_id = ?",
     );
-    const deleteFt = db.prepare(
-      "DELETE FROM screenshot_fts WHERE global_id = :global_id",
-    );
-    const insertFt = db.prepare(
-      "INSERT INTO screenshot_fts(global_id, filepath, filename, link, note) VALUES (:global_id, :filepath, :filename, :link, :note)",
-    );
 
     const updates: {
       global_id: string;
-      filepath: string;
-      filename: string;
       link: string | null;
       note: string;
     }[] = [];
 
-    for (const { global_id, filepath, filename } of pending) {
+    for (const { global_id, filepath } of pending) {
       const { link, note } = extractXattrComment(filepath);
       if (link || note) {
-        updates.push({ global_id, filepath, filename, link, note: note || "" });
+        updates.push({ global_id, link, note: note || "" });
       }
     }
 
     db.transaction((rows: typeof updates) => {
-      for (const row of rows) {
-        update.run(row);
-        deleteFt.run(row);
-        insertFt.run(row);
-      }
+      for (const row of rows) update.run(row);
       for (const { global_id } of pending) bumpAttempt.run(global_id);
     })(updates);
 
@@ -297,31 +273,21 @@ const createThumbnails = async (config: ScreenshotConfig) => {
 const screenshot: SourceDefinition<"screenshot"> = {
   kind: "screenshot",
 
-  setupStatements: [
-    `CREATE TABLE IF NOT EXISTS screenshot (
-      global_id TEXT PRIMARY KEY,
-      filepath TEXT NOT NULL UNIQUE,
-      filename TEXT,
-      time TEXT,
-      width INTEGER,
-      height INTEGER,
-      link TEXT,
-      note TEXT,
-      xattr_attempts INTEGER NOT NULL DEFAULT 0
-    )`,
-    `CREATE VIRTUAL TABLE IF NOT EXISTS screenshot_fts
-     USING FTS5(global_id, filepath, filename, link, note)`,
-    `CREATE TRIGGER IF NOT EXISTS screenshot_fts_insert AFTER INSERT ON screenshot BEGIN
-      INSERT INTO screenshot_fts(global_id, filepath, filename, link, note)
-      VALUES (new.global_id, new.filepath, new.filename, new.link, new.note);
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS screenshot_fts_delete AFTER DELETE ON screenshot BEGIN
-      DELETE FROM screenshot_fts WHERE global_id = old.global_id;
-    END`,
-  ],
-
-  ftsTable: "screenshot_fts",
   dataTable: "screenshot",
+  ftsTable: "screenshot_fts",
+  tableSql: `CREATE TABLE IF NOT EXISTS screenshot (
+    global_id TEXT PRIMARY KEY,
+    filepath TEXT NOT NULL UNIQUE,
+    filename TEXT,
+    time TEXT,
+    width INTEGER,
+    height INTEGER,
+    link TEXT,
+    note TEXT,
+    xattr_attempts INTEGER NOT NULL DEFAULT 0
+  )`,
+  timeColumn: "time",
+  ftsColumns: ["global_id", "filepath", "filename", "link", "note"],
 
   async fetch(db, config) {
     await populateDb(db, config);

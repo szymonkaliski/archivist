@@ -54,11 +54,19 @@ export interface SearchResult {
   };
 }
 
+export type TagSpec =
+  | { kind: "delimited"; column: string; delimiter: string }
+  | { kind: "exact"; column: string };
+
 export interface SourceDefinition<K extends SourceKind = SourceKind> {
   kind: K;
-  setupStatements: string[];
-  ftsTable: string;
   dataTable: string;
+  ftsTable: string;
+  tableSql: string;
+  timeColumn: string;
+  ftsColumns: readonly string[];
+  tagSpec?: TagSpec;
+  selectColumns?: string;
   fetch(db: Database.Database, config: SourceConfigMap[K]): Promise<void>;
   toSearchResult(row: Record<string, unknown>): SearchResult;
   embeddingText(row: Record<string, unknown>): string;

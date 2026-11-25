@@ -181,33 +181,36 @@ const createThumbnails = async (db: Database.Database) => {
 const pinboard: SourceDefinition<"pinboard"> = {
   kind: "pinboard",
 
-  setupStatements: [
-    `CREATE TABLE IF NOT EXISTS pinboard (
-      global_id TEXT PRIMARY KEY,
-      href TEXT,
-      hash TEXT NOT NULL UNIQUE,
-      meta TEXT,
-      description TEXT,
-      extended TEXT,
-      tags TEXT,
-      time DATETIME,
-      screenshot TEXT,
-      frozen TEXT,
-      fulltext TEXT
-    )`,
-    `CREATE VIRTUAL TABLE IF NOT EXISTS pinboard_fts
-     USING FTS5(global_id, href, meta, description, extended, tags, fulltext)`,
-    `CREATE TRIGGER IF NOT EXISTS pinboard_fts_insert AFTER INSERT ON pinboard BEGIN
-      INSERT INTO pinboard_fts(global_id, href, meta, description, extended, tags, fulltext)
-      VALUES (new.global_id, new.href, new.meta, new.description, new.extended, new.tags, new.fulltext);
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS pinboard_fts_delete AFTER DELETE ON pinboard BEGIN
-      DELETE FROM pinboard_fts WHERE global_id = old.global_id;
-    END`,
-  ],
-
-  ftsTable: "pinboard_fts",
   dataTable: "pinboard",
+  ftsTable: "pinboard_fts",
+  tableSql: `CREATE TABLE IF NOT EXISTS pinboard (
+    global_id TEXT PRIMARY KEY,
+    href TEXT,
+    hash TEXT NOT NULL UNIQUE,
+    meta TEXT,
+    description TEXT,
+    extended TEXT,
+    tags TEXT,
+    time DATETIME,
+    screenshot TEXT,
+    frozen TEXT,
+    fulltext TEXT
+  )`,
+  timeColumn: "time",
+  ftsColumns: [
+    "global_id",
+    "href",
+    "meta",
+    "description",
+    "extended",
+    "tags",
+    "fulltext",
+  ],
+  tagSpec: { kind: "delimited", column: "tags", delimiter: " " },
+  // fulltext holds megabytes of frozen-page prose and is only used by the
+  // FTS5 trigger; omitting it here avoids faulting overflow pages on read.
+  selectColumns:
+    "global_id, href, hash, meta, description, extended, tags, time, screenshot, frozen",
 
   async fetch(db, config) {
     if (!config.apiKey) throw new Error("apiKey not provided");
